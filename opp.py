@@ -138,11 +138,14 @@ if not st.session_state.portfolio.empty:
                 if has_us_stock:
                     usd_krw = fdr.DataReader('USD/KRW')
                     exchange_rate = float(usd_krw['Close'].iloc[-1])
-                
                 for index, row in st.session_state.portfolio.iterrows():
-                    code_val = row['종목코드']
+                    code_val = str(row['종목코드'])
                     nation_val = row['국가']
                     
+                    # 🌟 [수정됨] 사라진 0 다시 채워 넣기! (한국 주식은 무조건 6자리)
+                    if nation_val == '한국':
+                        code_val = code_val.zfill(6)
+            
                     stock_data = fdr.DataReader(code_val)
                     current_price_local = float(stock_data['Close'].iloc[-1])
                     
