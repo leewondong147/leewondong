@@ -155,9 +155,10 @@ if not st.session_state.portfolio.empty:
                         st.session_state.portfolio.at[index, '현재가(원)'] = int(current_price_local)
                 
                 st.session_state.portfolio.to_csv(FILE_NAME, index=False)
-    now = pd.Timestamp.now('Asia/Seoul').strftime('%Y년 %m월 %d일 %H시 %M분')
+   # 시간 도장 찍기
+                now = pd.Timestamp.now('Asia/Seoul').strftime('%Y년 %m월 %d일 %H시 %M분')
                 st.success(f"✅ 업데이트 완료! (기준 시간: {now})")
-            
+
             except Exception as e:
                 st.error(f"정확한 에러 원인: {e}")
 
