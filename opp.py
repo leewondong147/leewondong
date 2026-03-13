@@ -4,13 +4,21 @@ import FinanceDataReader as fdr
 import os
 import plotly.express as px
 import ssl
+import urllib.request # 🌟 [추가됨] 웹브라우저 위장을 위한 부품
 
-# 🌟 맥북 SSL 인증서 에러 해결을 위한 마법의 주문
+# ==========================================
+# 🌟 [추가됨] 데이터 서버에서 차단당하지 않도록 '일반 사용자'인 척 명찰 달기
+# ==========================================
+opener = urllib.request.build_opener()
+opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')]
+urllib.request.install_opener(opener)
+
+# 맥북 SSL 인증서 에러 해결
 ssl._create_default_https_context = ssl._create_unverified_context
 
 FILE_NAME = 'my_portfolio.csv'
 
-# 🌟 눈이 편안해지는 전체 글씨 크기 키우기 (CSS)
+# 화면 글씨 크기 키우기 (CSS)
 st.markdown("""
     <style>
     html, body, p, div, span, label, input, select, button, td, th {
@@ -24,32 +32,32 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🌟 [업그레이드] 주식 + ETF 이름 모두 외우는 사전 만들기
+# 🌟 [추가됨] 에러가 나도 앱이 멈추지 않도록 안전장치(try-except) 추가
 # ==========================================
 @st.cache_data
 def get_stock_dict():
-    # 1. 일반 주식(KRX) 데이터 불러오기
-    krx_df = fdr.StockListing('KRX')
-    stock_dict = dict(zip(krx_df['Code'], krx_df['Name']))
-    
-    # 2. 국내 ETF 데이터 불러와서 사전에 추가하기
+    stock_dict = {}
+    try:
+        krx_df = fdr.StockListing('KRX')
+        stock_dict.update(dict(zip(krx_df['Code'], krx_df['Name'])))
+    except Exception as e:
+        pass # 에러가 나도 무시하고 넘어갑니다.
+        
     try:
         etf_df = fdr.StockListing('ETF/KR')
-        # ETF는 데이터 표에서 'Code' 대신 'Symbol'이라는 이름표를 씁니다.
-        etf_dict = dict(zip(etf_df['Symbol'], etf_df['Name']))
-        stock_dict.update(etf_dict) # 기존 주식 사전에 ETF 사전을 합칩니다!
+        stock_dict.update(dict(zip(etf_df['Symbol'], etf_df['Name'])))
     except Exception as e:
-        pass # 만약 인터넷 문제로 ETF를 못 불러와도 에러가 나지 않게 넘깁니다.
+        pass
         
     return stock_dict
 
 code_to_name = get_stock_dict()
 
-# 2. 앱 제목 설정
+# 앱 제목 설정
 st.title("📈 나의 글로벌 투자 포트폴리오")
 st.write("한국 주식과 미국 주식을 원화 기준으로 한 번에 관리하세요!")
 
-# 3. 데이터를 기억하는 보관함 만들기
+# 데이터를 기억하는 보관함 만들기
 def load_data():
     if os.path.exists(FILE_NAME):
         df = pd.read_csv(FILE_NAME)
@@ -63,7 +71,7 @@ def load_data():
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = load_data()
 
-# 4. 왼쪽 사이드바에 입력 메뉴 만들기
+# 왼쪽 사이드바에 입력 메뉴 만들기
 st.sidebar.header("새로운 주식 추가하기")
 with st.sidebar.form("input_form"):
     broker = st.selectbox("증권사", ['KB증권', '토스증권', '카카오페이증권'])
@@ -86,7 +94,7 @@ if st.sidebar.button("🗑️ 모든 데이터 초기화 (새로 시작)"):
     st.sidebar.success("데이터가 깔끔하게 초기화되었습니다!")
     st.rerun() 
 
-# 5. 주식 추가 버튼을 눌렀을 때의 동작
+# 주식 추가 버튼을 눌렀을 때의 동작
 if submit:
     try:
         stock_data = fdr.DataReader(code)
@@ -118,7 +126,7 @@ if submit:
     except Exception as e:
         st.sidebar.error("종목코드를 확인해주세요!")
 
-# 6. 화면에 계산 결과 보여주기
+# 화면에 계산 결과 보여주기
 if not st.session_state.portfolio.empty:
     
     st.divider()
