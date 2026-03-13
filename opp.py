@@ -154,7 +154,7 @@ if not st.session_state.portfolio.empty:
                 st.session_state.portfolio.to_csv(FILE_NAME, index=False)
                 st.success("✅ 모든 주식이 방금 전 최신 가격으로 업데이트되었습니다!")
             except Exception as e:
-                st.error("f"정확한 에러 원인: {e}")
+                st.error(f"정확한 에러 원인: {e}")
 
     st.subheader("📝 보유 현황 (표를 수정하면 알아서 저장됩니다!)")
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic")
