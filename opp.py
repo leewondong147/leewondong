@@ -68,8 +68,17 @@ def load_data():
     else:
         return pd.DataFrame(columns=['증권사', '국가', '종목코드', '종목명', '매수단가(원)', '수량', '현재가(원)'])
 
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = load_data()
+# 🌟 [버전 2.0] 가족 주식 장부 올리기 기능
+st.subheader("📂 가족 주식 장부 올리기")
+uploaded_file = st.file_uploader("본인의 주식 장부(CSV 파일)가 있다면 여기에 올려주세요!", type=["csv"])
+
+if uploaded_file is not None:
+    # 누군가 파일을 올렸다면? -> 그 엑셀 파일로 화면을 싹 바꿔줌!
+    st.session_state.portfolio = pd.read_csv(uploaded_file)
+else:
+    # 아무것도 안 올렸다면? -> 기본적으로 대표님(고객님)의 주식을 보여줌!
+    if 'portfolio' not in st.session_state:
+        st.session_state.portfolio = load_data()
 
 # 왼쪽 사이드바에 입력 메뉴 만들기
 st.sidebar.header("새로운 주식 추가하기")
