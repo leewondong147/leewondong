@@ -4,3 +4,4 @@ finance-datareader
 plotly
 openpyxl
 xlrd
+xlsxwriter
