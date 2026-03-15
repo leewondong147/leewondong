@@ -4,10 +4,10 @@ import io
 
 # 🌟 화면 기본 설정
 st.set_page_config(page_title="호진환경 부가세 자동 분류기", layout="wide")
-st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 4.0 완결판)")
+st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 4.1 시력교정완료)")
 st.markdown("매입/매출 세금계산서는 물론, **법인카드 내역(전액 지점)**까지 완벽하게 처리합니다!")
 
-# 🎛️ 작업 종류 선택 스위치 (3가지로 늘어났습니다!)
+# 🎛️ 작업 종류 선택 스위치
 job_type = st.radio("👇 어떤 자료를 작업하실 건가요?", [
     "🛒 매입 세금계산서 (돈 쓸 때)", 
     "💰 매출 세금계산서 (돈 벌 때)",
@@ -24,7 +24,7 @@ if uploaded_file is not None:
         # 💳 1. 법인카드 로직 (전액 인천 지점)
         # ==========================================
         if "카드" in job_type:
-            # 카드 내역은 윗부분 쓸데없는 줄이 더 많을 수 있어서 대략 7~8줄을 건너뜁니다.
+            # 카드는 윗부분 양식이 조금 달라서 8줄을 건너뜁니다
             if uploaded_file.name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, skiprows=8)
             else:
@@ -33,8 +33,8 @@ if uploaded_file is not None:
             st.success("✅ 법인카드 파일 읽기 성공!")
             
             # 카드는 무조건 안산 0건, 전부 인천!
-            ansan_df = df.iloc[0:0].copy() # 텅 빈 안산 장부
-            incheon_df = df.copy()         # 원본 그대로 100% 인천 장부
+            ansan_df = df.iloc[0:0].copy() 
+            incheon_df = df.copy()         
             
             st.info("💡 규칙에 따라 법인카드 내역은 100% 인천(지점) 장부로 배정되었습니다!")
 
@@ -42,11 +42,11 @@ if uploaded_file is not None:
         # 🛒💰 2. 매입/매출 세금계산서 로직
         # ==========================================
         else:
-            # 매입/매출은 항상 4줄 건너뜀
+            # 🚨 여기가 수정된 부분입니다! 홈택스 원본에 맞춰서 5줄을 건너뜁니다!
             if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file, skiprows=4)
+                df = pd.read_csv(uploaded_file, skiprows=5)
             else:
-                df = pd.read_excel(uploaded_file, skiprows=4)
+                df = pd.read_excel(uploaded_file, skiprows=5)
                 
             st.success(f"✅ 파일 읽기 성공! 분류 작업을 시작합니다...")
 
@@ -62,10 +62,10 @@ if uploaded_file is not None:
                     incheon_df = df[~is_ansan].copy()
                     st.info("💡 매출 분류: 본점 이메일(3개) 및 성남경찰서(예외)는 안산, 나머지는 인천으로 쪼갰습니다!")
                 else:
-                    st.error("🚨 파일에서 '공급자 이메일' 칸을 찾을 수 없습니다. 매출 파일이 맞는지 확인해주세요.")
+                    st.error("🚨 파일에서 '공급자 이메일' 칸을 찾을 수 없습니다. 매출 원본 파일이 맞는지 확인해주세요.")
                     st.stop()
 
-            # 🔵 매입 로직 (기장료/KT 분배)
+            # 🔵 매입 로직
             elif "매입" in job_type:
                 email_col = next((col for col in df.columns if '공급받는자 이메일' in str(col) or '이메일' in str(col)), None)
                 name_col = next((col for col in df.columns if '상호' in str(col)), None)
@@ -118,7 +118,7 @@ if uploaded_file is not None:
                             
                         st.success("✅ KT 요금 분배 완료!")
                 else:
-                    st.error("🚨 필수 기둥을 찾을 수 없습니다.")
+                    st.error("🚨 엑셀에서 필수 기둥(이메일, 상호 등)을 찾을 수 없습니다. 파일 양식을 확인해주세요.")
                     st.stop()
 
         # ==========================================
@@ -127,7 +127,6 @@ if uploaded_file is not None:
         st.divider()
         col1, col2 = st.columns(2)
         
-        # 파일 저장할 때 이름 바꾸기 (카드내역, 매출장, 매입장)
         if "카드" in job_type:
             file_prefix = "카드내역"
         else:
