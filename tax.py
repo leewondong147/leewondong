@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 7.8)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.0)")
 
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
 
@@ -53,19 +53,16 @@ if uploaded_file is not None:
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(row.astype(str)).replace(" ", "").lower()
             
-            # [수정] 더 정교해진 본/지점 분류 로직
-            # 1. 우선순위 1: 이름에 '인천'이 들어가면 무조건 인천! (인천경찰청 등)
-            if '인천' in full_text:
-                incheon_list.append(row)
+            # [수정] 대표님 요청 기준 엄격 적용 (성남수정경찰서 추가)
+            is_ansan_email = any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater'])
+            # '성남수정' 또는 '성남경찰서' 키워드 체크
+            is_ansan_police = any(k in name_val for k in ['성남수정', '성남경찰서']) or any(k in full_text for k in ['성남수정', '성남경찰서'])
             
-            # 2. 우선순위 2: 기장료/세무 관련은 공동비용 (매입일 때만)
-            elif "매입" in job_type and any(k in name_val for k in ['세무', '비즈', 'tax']):
+            if "매입" in job_type and any(k in name_val for k in ['세무', '비즈', 'tax']):
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
                 ansan_list.append(r_a); incheon_list.append(r_i)
-            
-            # 3. 우선순위 3: KT 요금 질문 (매입일 때만)
             elif "매입" in job_type and any(k in name_val for k in ['kt', '케이티', '전화']):
                 st.info(f"📞 공동요금: {row[c_name]} (총 {row[c_supply]:,.0f}원)")
                 ansan_v = st.number_input(f"ㄴ {row[c_name]} 안산분 공급가액?", 0.0, float(row[c_supply]), float(row[c_supply]/2), key=f"kt_{idx}")
@@ -74,11 +71,11 @@ if uploaded_file is not None:
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]-ansan_v, (row[c_supply]-ansan_v)*0.1, (row[c_supply]-ansan_v)*1.1
                 ansan_list.append(r_a); incheon_list.append(r_i)
             
-            # 4. 우선순위 4: 본점 키워드 (성남, 수정, 경찰서 등) - 인천 제외 후 남은 것들 중
-            elif any(k in full_text for k in ['6114', '성남', '수정', '경찰서', 'tpy1004', 'tpywater']) and ('hojinbio' not in full_text):
+            # 안산 분류 (이메일이 있거나 성남수정/성남경찰서인 경우)
+            elif (is_ansan_email or is_ansan_police) and ('hojinbio' not in full_text):
                 ansan_list.append(row)
             
-            # 5. 나머지: 인천
+            # 그 외 모든 경우 (인천경찰청 등 이메일 조건 없는 것들)
             else:
                 incheon_list.append(row)
 
@@ -112,7 +109,7 @@ if uploaded_file is not None:
         
         st.divider()
         st.success(f"✅ {job_type} 정산 완료!")
-        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_결과_최종.xlsx")
+        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_결과_통합.xlsx")
         
         c1, c2 = st.columns(2)
         with c1: st.subheader("🏢 안산 본점"); st.dataframe(ansan_final)
