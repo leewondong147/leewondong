@@ -4,10 +4,10 @@ import io
 
 # 🌟 화면 기본 설정
 st.set_page_config(page_title="호진환경 부가세 자동 분류기", layout="wide")
-st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 4.2 시력완벽교정)")
-st.markdown("매입/매출 세금계산서는 물론, **법인카드 내역(전액 지점)**까지 완벽하게 처리합니다!")
+st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 5.0 최종)")
+st.markdown("매입/매출/카드 정산 통합 시스템입니다. 홈택스 원본 파일을 그대로 올려주세요.")
 
-# 🎛️ 작업 종류 선택 스위치
+# 🎛️ 작업 종류 선택
 job_type = st.radio("👇 어떤 자료를 작업하실 건가요?", [
     "🛒 매입 세금계산서 (돈 쓸 때)", 
     "💰 매출 세금계산서 (돈 벌 때)",
@@ -15,143 +15,124 @@ job_type = st.radio("👇 어떤 자료를 작업하실 건가요?", [
 ])
 st.divider()
 
-# 파일 올리기 버튼
 uploaded_file = st.file_uploader(f"📂 {job_type.split(' ')[1]} 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
     try:
-        # ==========================================
-        # 💳 1. 법인카드 로직
-        # ==========================================
-        if "카드" in job_type:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file, skiprows=8)
-            else:
-                df = pd.read_excel(uploaded_file, skiprows=8)
-            
-            st.success("✅ 법인카드 파일 읽기 성공!")
-            
-            ansan_df = df.iloc[0:0].copy() 
-            incheon_df = df.copy()         
-            
-            st.info("💡 규칙에 따라 법인카드 내역은 100% 인천(지점) 장부로 배정되었습니다!")
-
-        # ==========================================
-        # 🛒💰 2. 매입/매출 세금계산서 로직
-        # ==========================================
+        # 1. 파일 읽기 (카드 8줄, 매입/매출 4줄 건너뜀)
+        skip = 8 if "카드" in job_type else 4
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, skiprows=skip)
         else:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file, skiprows=5)
-            else:
-                df = pd.read_excel(uploaded_file, skiprows=5)
+            # xls, xlsx 모두 대응 (엔진 자동 선택)
+            df = pd.read_excel(uploaded_file, skiprows=skip)
+            
+        st.success("✅ 파일 읽기 성공!")
+
+        # 2. 기둥 이름 자동 찾기 (유연하게 검색)
+        col_email = next((c for c in df.columns if '이메일' in str(c)), None)
+        col_name = next((c for c in df.columns if '상호' in str(c) or '공급자명' in str(c)), None)
+        col_supply = next((c for c in df.columns if '공급가액' in str(c) and '총' not in str(c)), None)
+        col_tax = next((c for c in df.columns if '세액' in str(c) and '총' not in str(c)), None)
+
+        # 3. 데이터 정제 (콤마 제거 및 숫자로 변환)
+        if col_supply and col_tax:
+            df[col_supply] = pd.to_numeric(df[col_supply].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            df[col_tax] = pd.to_numeric(df[col_tax].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+
+        # ------------------------------------------
+        # 💳 법인카드 로직 (전부 지점)
+        # ------------------------------------------
+        if "카드" in job_type:
+            ansan_df = df.iloc[0:0].copy()
+            incheon_df = df.copy()
+            st.info("💡 법인카드 내역은 100% 인천(지점)으로 분류되었습니다.")
+
+        # ------------------------------------------
+        # 💰 매출 로직 (본점 이메일 3종 + 성남경찰서)
+        # ------------------------------------------
+        elif "매출" in job_type:
+            if col_email:
+                # 이메일 조건 (대소문자 구분 없이)
+                is_ansan_email = df[col_email].astype(str).str.contains('6114hojin|tpy1004|tpywater', na=False, case=False)
+                # 성남경찰서 조건 (전체 텍스트에서 검색)
+                is_seongnam = df.astype(str).apply(lambda x: x.str.contains('성남경찰서')).any(axis=1)
                 
-            st.success(f"✅ 파일 읽기 성공! 분류 작업을 시작합니다...")
+                is_ansan = is_ansan_email | is_seongnam
+                ansan_df = df[is_ansan].copy()
+                incheon_df = df[~is_ansan].copy()
+            else:
+                st.error("🚨 이메일 기둥을 찾을 수 없습니다.")
+                st.stop()
 
-            # 🟢 매출 로직
-            if "매출" in job_type:
-                # 매출은 '공급자 이메일'을 봅니다.
-                email_col = next((col for col in df.columns if '공급자 이메일' in str(col)), None)
-                if email_col:
-                    is_ansan_email = df[email_col].astype(str).str.contains('6114hojin|tpy1004|tpywater', na=False, case=False)
-                    is_seongnam = df.astype(str).apply(lambda x: x.str.contains('성남경찰서')).any(axis=1)
-                    
-                    is_ansan = is_ansan_email | is_seongnam
-                    ansan_df = df[is_ansan].copy()
-                    incheon_df = df[~is_ansan].copy()
-                    st.info("💡 매출 분류: 본점 이메일(3개) 및 성남경찰서(예외)는 안산, 나머지는 인천으로 쪼갰습니다!")
-                else:
-                    st.error("🚨 파일에서 '공급자 이메일' 칸을 찾을 수 없습니다. 매출 원본 파일이 맞는지 확인해주세요.")
-                    st.stop()
+        # ------------------------------------------
+        # 🛒 매입 로직 (기장료/KT 분배)
+        # ------------------------------------------
+        elif "매입" in job_type:
+            if col_email and col_name:
+                # 기본 안산 이메일 분류
+                is_ansan_email = df[col_email].astype(str).str.contains('6114hojin', na=False, case=False)
+                
+                # 비즈텍스(기장료) 찾기
+                is_biz = df[col_name].astype(str).str.contains('비즈텍스|비즈택스', na=False)
+                
+                # KT 전화요금 찾기 (상호에 KT가 있고 6만원 미만인 경우)
+                is_kt = df[col_name].astype(str).str.contains('KT|케이티', na=False, case=False) & (df[col_supply] < 60000)
+                
+                # 순수 안산/인천 (공동 요금 제외)
+                ansan_df = df[is_ansan_email & ~is_biz & ~is_kt].copy()
+                incheon_df = df[~is_ansan_email & ~is_biz & ~is_kt].copy()
+                
+                # [분배] 비즈텍스 5:5 자동 분배
+                biz_df = df[is_biz].copy()
+                if not biz_df.empty:
+                    for _, row in biz_df.iterrows():
+                        row_a, row_i = row.copy(), row.copy()
+                        row_a[col_supply], row_a[col_tax] = row[col_supply]/2, row[col_tax]/2
+                        row_i[col_supply], row_i[col_tax] = row[col_supply]/2, row[col_tax]/2
+                        ansan_df = pd.concat([ansan_df, pd.DataFrame([row_a])])
+                        incheon_df = pd.concat([incheon_df, pd.DataFrame([row_i])])
+                    st.info("💡 비즈텍스 기장료가 50:50으로 분배되었습니다.")
 
-            # 🔵 매입 로직
-            elif "매입" in job_type:
-                # 🚨수정된 부분: 매입은 무조건 '공급받는자 이메일'을 보도록 고정했습니다!
-                email_col = next((col for col in df.columns if '공급받는자 이메일' in str(col)), None)
-                name_col = next((col for col in df.columns if '상호' in str(col)), None)
-                supply_col = next((col for col in df.columns if '공급가액' in str(col) and '총' not in str(col)), None)
-                tax_col = next((col for col in df.columns if '세액' in str(col) and '총' not in str(col)), None)
-
-                if email_col and name_col and supply_col and tax_col:
-                    df[supply_col] = pd.to_numeric(df[supply_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                    df[tax_col] = pd.to_numeric(df[tax_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                    
-                    is_ansan_email = df[email_col].astype(str).str.contains('6114hojin', na=False, case=False)
-                    is_biztex = df[name_col].astype(str).str.contains('비즈텍스', na=False) & (~is_ansan_email)
-                    is_kt_common = df[name_col].astype(str).str.contains('KT', na=False) & (df[supply_col] < 60000) & (~is_ansan_email)
-                    
-                    ansan_df = df[is_ansan_email].copy()
-                    incheon_df = df[(~is_ansan_email) & (~is_biztex) & (~is_kt_common)].copy()
-                    
-                    biztex_df = df[is_biztex].copy()
-                    if not biztex_df.empty:
-                        biztex_ansan, biztex_incheon = biztex_df.copy(), biztex_df.copy()
-                        biztex_ansan[supply_col] /= 2
-                        biztex_ansan[tax_col] /= 2
-                        biztex_incheon[supply_col] /= 2
-                        biztex_incheon[tax_col] /= 2
+                # [분배] KT 요금 수동 분배
+                kt_df = df[is_kt].copy()
+                if not kt_df.empty:
+                    st.warning("⚠️ 공동 KT 요금이 발견되었습니다. 안산 금액을 입력하세요.")
+                    for i, row in kt_df.iterrows():
+                        total = float(row[col_supply])
+                        ansan_val = st.number_input(f"👉 {row[col_name]} ({total:,.0f}원) 중 안산 공급가액?", 0.0, total, total/2, key=f"kt_{i}")
                         
-                        ansan_df = pd.concat([ansan_df, biztex_ansan])
-                        incheon_df = pd.concat([incheon_df, biztex_incheon])
-                        st.info("💡 세무법인비즈텍스 기장료/부가세 50:50 분배 완료!")
+                        row_a, row_i = row.copy(), row.copy()
+                        row_a[col_supply], row_a[col_tax] = ansan_val, ansan_val * 0.1
+                        row_i[col_supply], row_i[col_tax] = total - ansan_val, (total - ansan_val) * 0.1
+                        ansan_df = pd.concat([ansan_df, pd.DataFrame([row_a])])
+                        incheon_df = pd.concat([incheon_df, pd.DataFrame([row_i])])
+            else:
+                st.error("🚨 필수 기둥을 찾을 수 없습니다.")
+                st.stop()
 
-                    kt_df = df[is_kt_common].copy()
-                    if not kt_df.empty:
-                        st.warning("⚠️ 이번 달 공동 KT 전화요금(5만원대)이 발견되었습니다! 안산(본점) 금액을 입력해주세요.")
-                        for index, row in kt_df.iterrows():
-                            total_supply = float(row[supply_col])
-                            total_tax = float(row[tax_col])
-                            
-                            ansan_supply = st.number_input(
-                                f"👉 총 공급가액 {total_supply:,.0f}원 중 안산 금액?", 
-                                min_value=0.0, max_value=total_supply, value=total_supply/2, step=10.0, key=f"kt_{index}"
-                            )
-                            ansan_tax = ansan_supply * 0.1
-                            
-                            kt_ansan = row.to_frame().T
-                            kt_ansan[supply_col], kt_ansan[tax_col] = ansan_supply, ansan_tax
-                            ansan_df = pd.concat([ansan_df, kt_ansan])
-                            
-                            kt_incheon = row.to_frame().T
-                            kt_incheon[supply_col], kt_incheon[tax_col] = total_supply - ansan_supply, total_tax - ansan_tax
-                            incheon_df = pd.concat([incheon_df, kt_incheon])
-                            
-                        st.success("✅ KT 요금 분배 완료!")
-                else:
-                    st.error("🚨 엑셀에서 필수 기둥(공급받는자 이메일, 상호 등)을 찾을 수 없습니다. 파일 양식을 확인해주세요.")
-                    st.stop()
-
-        # ==========================================
-        # 🏁 공통: 최종 결과 화면 및 엑셀 다운로드
-        # ==========================================
+        # ------------------------------------------
+        # 🏁 최종 결과 및 다운로드
+        # ------------------------------------------
         st.divider()
-        col1, col2 = st.columns(2)
+        c1, c2 = st.columns(2)
+        prefix = "카드" if "카드" in job_type else ("매출" if "매출" in job_type else "매입")
         
-        if "카드" in job_type:
-            file_prefix = "카드내역"
-        else:
-            file_prefix = "매출장" if "매출" in job_type else "매입장"
-        
-        with col1:
-            st.subheader(f"🏢 안산(본점) {file_prefix} - {len(ansan_df)}건")
+        with c1:
+            st.subheader(f"🏢 안산(본점) - {len(ansan_df)}건")
+            st.dataframe(ansan_df)
             if not ansan_df.empty:
-                st.dataframe(ansan_df)
-                towrite = io.BytesIO()
-                ansan_df.to_excel(towrite, index=False, engine='openpyxl')
-                towrite.seek(0)
-                st.download_button(label=f"📥 안산 {file_prefix} 다운로드", data=towrite, file_name=f"안산_{file_prefix}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.write("안산(본점)으로 배정된 내역이 없습니다.")
-            
-        with col2:
-            st.subheader(f"🏭 인천(지점) {file_prefix} - {len(incheon_df)}건")
+                out = io.BytesIO()
+                ansan_df.to_excel(out, index=False, engine='openpyxl')
+                st.download_button("📥 안산 엑셀 다운로드", out.getvalue(), f"안산_{prefix}.xlsx")
+
+        with c2:
+            st.subheader(f"🏭 인천(지점) - {len(incheon_df)}건")
+            st.dataframe(incheon_df)
             if not incheon_df.empty:
-                st.dataframe(incheon_df)
-                towrite2 = io.BytesIO()
-                incheon_df.to_excel(towrite2, index=False, engine='openpyxl')
-                towrite2.seek(0)
-                st.download_button(label=f"📥 인천 {file_prefix} 다운로드", data=towrite2, file_name=f"인천_{file_prefix}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.write("인천(지점)으로 배정된 내역이 없습니다.")
+                out2 = io.BytesIO()
+                incheon_df.to_excel(out2, index=False, engine='openpyxl')
+                st.download_button("📥 인천 엑셀 다운로드", out2.getvalue(), f"인천_{prefix}.xlsx")
 
     except Exception as e:
-        st.error(f"🚨 에러가 발생했습니다. 원인: {e}")
+        st.error(f"🚨 오류 발생: {e}")
