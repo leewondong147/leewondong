@@ -4,7 +4,7 @@ import io
 
 # 🌟 화면 기본 설정
 st.set_page_config(page_title="호진환경 부가세 자동 분류기", layout="wide")
-st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 4.1 시력교정완료)")
+st.title("📊 (주)호진환경 부가세 자동 분류기 (Ver 4.2 시력완벽교정)")
 st.markdown("매입/매출 세금계산서는 물론, **법인카드 내역(전액 지점)**까지 완벽하게 처리합니다!")
 
 # 🎛️ 작업 종류 선택 스위치
@@ -21,10 +21,9 @@ uploaded_file = st.file_uploader(f"📂 {job_type.split(' ')[1]} 원본 파일 �
 if uploaded_file is not None:
     try:
         # ==========================================
-        # 💳 1. 법인카드 로직 (전액 인천 지점)
+        # 💳 1. 법인카드 로직
         # ==========================================
         if "카드" in job_type:
-            # 카드는 윗부분 양식이 조금 달라서 8줄을 건너뜁니다
             if uploaded_file.name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, skiprows=8)
             else:
@@ -32,7 +31,6 @@ if uploaded_file is not None:
             
             st.success("✅ 법인카드 파일 읽기 성공!")
             
-            # 카드는 무조건 안산 0건, 전부 인천!
             ansan_df = df.iloc[0:0].copy() 
             incheon_df = df.copy()         
             
@@ -42,7 +40,6 @@ if uploaded_file is not None:
         # 🛒💰 2. 매입/매출 세금계산서 로직
         # ==========================================
         else:
-            # 🚨 여기가 수정된 부분입니다! 홈택스 원본에 맞춰서 5줄을 건너뜁니다!
             if uploaded_file.name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, skiprows=5)
             else:
@@ -52,6 +49,7 @@ if uploaded_file is not None:
 
             # 🟢 매출 로직
             if "매출" in job_type:
+                # 매출은 '공급자 이메일'을 봅니다.
                 email_col = next((col for col in df.columns if '공급자 이메일' in str(col)), None)
                 if email_col:
                     is_ansan_email = df[email_col].astype(str).str.contains('6114hojin|tpy1004|tpywater', na=False, case=False)
@@ -67,7 +65,8 @@ if uploaded_file is not None:
 
             # 🔵 매입 로직
             elif "매입" in job_type:
-                email_col = next((col for col in df.columns if '공급받는자 이메일' in str(col) or '이메일' in str(col)), None)
+                # 🚨수정된 부분: 매입은 무조건 '공급받는자 이메일'을 보도록 고정했습니다!
+                email_col = next((col for col in df.columns if '공급받는자 이메일' in str(col)), None)
                 name_col = next((col for col in df.columns if '상호' in str(col)), None)
                 supply_col = next((col for col in df.columns if '공급가액' in str(col) and '총' not in str(col)), None)
                 tax_col = next((col for col in df.columns if '세액' in str(col) and '총' not in str(col)), None)
@@ -118,7 +117,7 @@ if uploaded_file is not None:
                             
                         st.success("✅ KT 요금 분배 완료!")
                 else:
-                    st.error("🚨 엑셀에서 필수 기둥(이메일, 상호 등)을 찾을 수 없습니다. 파일 양식을 확인해주세요.")
+                    st.error("🚨 엑셀에서 필수 기둥(공급받는자 이메일, 상호 등)을 찾을 수 없습니다. 파일 양식을 확인해주세요.")
                     st.stop()
 
         # ==========================================
