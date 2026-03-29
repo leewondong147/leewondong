@@ -6,10 +6,8 @@ import requests
 import time
 import io
 
-# 1. 화면 설정
-st.set_page_config(page_title="EagleEye V4.3", layout="wide")
+st.set_page_config(page_title="EagleEye V4.4", layout="wide")
 
-# 2. 종목 리스트 로더
 @st.cache_data
 def load_stock_list():
     try:
@@ -21,7 +19,6 @@ def load_stock_list():
     except:
         return pd.DataFrame()
 
-# 3. 데이터 분석 보조 함수들
 @st.cache_data(ttl=3600)
 def get_price_data(code, start_date):
     return fdr.DataReader(code, start_date)
@@ -59,10 +56,9 @@ def count_consecutive(series, is_buy=True):
         else: break
     return count
 
-# --- 메인 로직 시작 ---
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V4.3 (출력 버그 완벽 수정)")
+st.title("🦅 EagleEye V4.4 (5대 지표 완전체)")
 
 if krx_list.empty:
     st.error("데이터 로드 실패. 새로고침 하세요.")
@@ -81,13 +77,17 @@ else:
                 df = get_price_data(user_code, start_date)
                 
                 if not df.empty:
-                    # 지표 계산
+                    # 1. 지표 계산
                     ma20_d = df['Close'].rolling(20).mean().iloc[-1]
                     ma60_d = df['Close'].rolling(60).mean().iloc[-1]
                     is_daily_aligned = df['Close'].iloc[-1] > ma20_d > ma60_d
                     
                     m_df = df.resample('ME').agg({'Close': 'last', 'Volume': 'sum'})
                     m_df['MA10'] = m_df['Close'].rolling(10).mean()
+                    m_df['EMA12'] = m_df['Close'].ewm(span=12).mean()
+                    m_df['EMA26'] = m_df['Close'].ewm(span=26).mean()
+                    m_df['MACD'] = m_df['EMA12'] - m_df['EMA26']
+                    m_df['Signal'] = m_df['MACD'].ewm(span=9).mean()
                     m_df = m_df.dropna()
                     
                     inv_df = get_naver_investor_data(user_code)
@@ -97,40 +97,47 @@ else:
                     st.subheader(f"📊 {user_name} 분석 결과")
                     st.line_chart(m_df[['Close', 'MA10']])
                     
-                    # 💡 출력 버그 해결 구간: if-else 문을 독립적으로 작성
-                    c1, c2, c3 = st.columns(3)
-                    
-                    with c1:
-                        st.write("**📈 장기 추세**")
-                        if m_df.iloc[-1]['Close'] > m_df.iloc[-1]['MA10']:
-                            st.success("✅ 10MA 위 (정배열)")
-                        else:
-                            st.error("❌ 10MA 아래 (역배열)")
+                    curr_m, prev_m = m_df.iloc[-1], m_df.iloc[-2]
+
+                    # 💡 출력부: 5대 지표 카드 구성
+                    row1_col1, row1_col2, row1_col3 = st.columns(3)
+                    with row1_col1:
+                        st.write("**📈 장기 추세 (월봉 10MA)**")
+                        if curr_m['Close'] > curr_m['MA10']: st.success("✅ 10MA 위 (장기 우상향)")
+                        else: st.error("❌ 10MA 아래 (장기 하락세)")
                             
-                    with c2:
-                        st.write("**💰 세력 수급**")
-                        if f_buy > 0 or i_buy > 0:
-                            st.info(f"🔥 매수: 외인 {f_buy}일 / 기관 {i_buy}일")
-                        else:
-                            st.write("뚜렷한 수급 없음")
+                    with row1_col2:
+                        st.write("**💰 세력 수급 (최근 연속)**")
+                        if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수: 외인 {f_buy}일 / 기관 {i_buy}일")
+                        else: st.write("뚜렷한 수급 없음")
                             
-                    with c3:
-                        st.write("**🌳 일봉 상태**")
-                        if is_daily_aligned:
-                            st.success("✅ 일봉 정배열")
-                        else:
-                            st.warning("❌ 일봉 혼조세/역배열")
+                    with row1_col3:
+                        st.write("**🌳 일봉 상태 (20/60선)**")
+                        if is_daily_aligned: st.success("✅ 일봉 정배열 (단기 상승)")
+                        else: st.warning("❌ 일봉 혼조세/역배열")
+
+                    st.write("---") # 구분선
+                    row2_col1, row2_col2 = st.columns(2)
+                    with row2_col1:
+                        st.write("**📊 거래량 폭발 (전월비)**")
+                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 거래량 1.5배 이상 대폭발!")
+                        else: st.write("❌ 거래량 변화 크지 않음")
+
+                    with row2_col2:
+                        st.write("**🚀 MACD 추세 에너지**")
+                        if curr_m['MACD'] > curr_m['Signal']: st.success("✅ MACD 골든크로스/상승중")
+                        else: st.warning("❌ MACD 데드크로스/하락중")
                 else:
                     st.error("데이터를 가져올 수 없습니다.")
 
     with tab2:
+        # 전수조사 로직은 V4.3과 동일하게 유지
         st.subheader("🖥️ 우량주 250개 실시간 스캔")
         if st.button("🌟 스캔 시작", key="b2"):
             results = []
             p_bar = st.progress(0)
             status_text = st.empty()
             start_date = (datetime.today() - timedelta(days=1095)).strftime('%Y-%m-%d')
-            
             for i, (idx, row) in enumerate(krx_list.iterrows()):
                 p_bar.progress((i + 1) / len(krx_list))
                 status_text.text(f"⏳ [{row['Name']}] 분석 중...")
@@ -142,23 +149,10 @@ else:
                     if m_df.iloc[-1]['Close'] >= (m_df.iloc[-1]['MA10'] * 0.97):
                         inv_df = get_naver_investor_data(row['Code'])
                         if not inv_df.empty:
-                            f_sum = inv_df.head(3)['외국인'].sum()
-                            i_sum = inv_df.head(3)['기관합계'].sum()
-                            if f_sum > 0 or i_sum > 0:
-                                results.append({
-                                    '종목명': row['Name'], 
-                                    '코드': row['Code'], 
-                                    '현재가': int(m_df.iloc[-1]['Close']),
-                                    '외인(3D)': "매수" if f_sum > 0 else "매도",
-                                    '기관(3D)': "매수" if i_sum > 0 else "매도"
-                                })
+                            f_s, i_s = inv_df.head(3)['외국인'].sum(), inv_df.head(3)['기관합계'].sum()
+                            if f_s > 0 or i_s > 0:
+                                results.append({'종목명': row['Name'], '코드': row['Code'], '현재가': int(m_df.iloc[-1]['Close'])})
                 except: continue
-            
             status_text.success(f"✅ {len(results)}개 발견!")
             if results:
-                res_df = pd.DataFrame(results)
-                st.dataframe(res_df, use_container_width=True)
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    res_df.to_excel(writer, index=False)
-                st.download_button("📥 엑셀 다운로드", output.getvalue(), "Stock_Report.xlsx")
+                st.dataframe(pd.DataFrame(results), use_container_width=True)
