@@ -6,17 +6,15 @@ import requests
 import time
 import io
 
-# 화면 설정을 넓게 잡습니다.
-st.set_page_config(page_title="궁극의 스마트 주식 진단기 V3.2", layout="wide")
+st.set_page_config(page_title="궁극의 스마트 주식 진단기 V3.3", layout="wide")
 
-# =====================================================================
-# [엔진 1] 종목 리스트 (우회로 포함)
-# =====================================================================
 @st.cache_data
 def load_stock_list():
     try:
-        df = fdr.StockListing('KOSPI')
-        if df.empty: raise ValueError
+        # 코스피 + 코스닥 상위 일부를 합쳐서 더 넓게 봅니다.
+        ks = fdr.StockListing('KOSPI')
+        kd = fdr.StockListing('KOSDAQ').head(300) # 코스닥은 상위 300개만 추가
+        df = pd.concat([ks, kd])
         df['Name_Code'] = df['Name'] + ' (' + df['Code'] + ')'
         return df
     except:
@@ -30,9 +28,6 @@ def load_stock_list():
         df['Name_Code'] = df['Name'] + ' (' + df['Code'] + ')'
         return df
 
-# =====================================================================
-# [엔진 2] 데이터 분석 함수들
-# =====================================================================
 @st.cache_data(ttl=3600)
 def get_price_data(code, start_date):
     return fdr.DataReader(code, start_date)
@@ -62,104 +57,15 @@ def get_naver_investor_data(code):
     except: pass
     return pd.DataFrame()
 
-def count_consecutive(series, is_buy=True):
-    data_list = series.tolist()
-    if len(data_list) > 0 and data_list[0] == 0: data_list = data_list[1:]
-    count = 0
-    for val in data_list:
-        if (is_buy and val > 0) or (not is_buy and val < 0): count += 1
-        else: break
-    return count
-
-# 데이터 로드
 krx_list = load_stock_list()
 
-st.title("🦅 궁극의 스마트 주식 진단기 V3.2")
+st.title("🦅 궁극의 스마트 주식 진단기 V3.3 (필터 최적화)")
+tab1, tab2 = st.tabs(["🔍 개별 종목 정밀 진단", "📊 시장 전수조사 & 엑셀"])
 
-tab1, tab2 = st.tabs(["🔍 개별 종목 정밀 진단", "📊 코스피 전수조사 & 엑셀"])
-
-# =====================================================================
-# [탭 1] 개별 종목 정밀 진단 (복구 완료!)
-# =====================================================================
-with tab1:
-    if not krx_list.empty:
-        selected_stock = st.selectbox("진단할 종목을 선택하세요:", krx_list['Name_Code'].tolist())
-        user_code = selected_stock.split('(')[1].replace(')', '')
-        user_name = selected_stock.split(' (')[0]
-
-        if st.button("🚀 정밀 진단 시작", key="btn_single"):
-            status_msg = st.empty()
-            status_msg.info(f"▶️ [{user_name}] 지표 분석 중...")
-            
-            end_date = datetime.today()
-            start_date_3yr = (end_date - timedelta(days=1095)).strftime('%Y-%m-%d')
-            df = get_price_data(user_code, start_date_3yr)
-            
-            if not df.empty:
-                # 1. 일봉 정배열
-                ma20_d = df['Close'].rolling(20).mean().iloc[-1]
-                ma60_d = df['Close'].rolling(60).mean().iloc[-1]
-                is_daily_aligned = df['Close'].iloc[-1] > ma20_d > ma60_d
-                
-                # 2. 월봉 및 보조지표
-                m_df = df.resample('ME').agg({'Close': 'last', 'Volume': 'sum'})
-                m_df['MA10'] = m_df['Close'].rolling(10).mean()
-                m_df['EMA12'] = m_df['Close'].ewm(span=12).mean()
-                m_df['EMA26'] = m_df['Close'].ewm(span=26).mean()
-                m_df['MACD'] = m_df['EMA12'] - m_df['EMA26']
-                m_df['Signal'] = m_df['MACD'].ewm(span=9).mean()
-                m_df = m_df.dropna()
-                
-                # 3. 수급
-                inv_df = get_naver_investor_data(user_code)
-                f_buy, f_sell, i_buy, i_sell = 0, 0, 0, 0
-                if not inv_df.empty:
-                    f_buy = count_consecutive(inv_df['외국인'], True)
-                    f_sell = count_consecutive(inv_df['외국인'], False)
-                    i_buy = count_consecutive(inv_df['기관합계'], True)
-                    i_sell = count_consecutive(inv_df['기관합계'], False)
-
-                status_msg.empty()
-                st.subheader(f"📊 {user_name} 진단 리포트")
-                
-                chart_df = m_df[['Close', 'MA10']].rename(columns={'Close': '월봉 종가', 'MA10': '10개월 선'})
-                st.line_chart(chart_df)
-                
-                c1, c2, c3 = st.columns(3)
-                curr_m, prev_m = m_df.iloc[-1], m_df.iloc[-2]
-                
-                with c1:
-                    st.write("**📈 장기 추세**")
-                    if prev_m['Close'] < prev_m['MA10'] and curr_m['Close'] > curr_m['MA10']: st.success("🔥 10MA 상향 돌파!")
-                    elif curr_m['Close'] > curr_m['MA10']: st.info("✅ 10MA 위 유지 중")
-                    else: st.error("❄️ 10MA 아래 하락세")
-                    
-                    st.write("**💰 세력 수급**")
-                    if f_buy > 0 or i_buy > 0: st.success(f"🔥 매수(외:{f_buy}/기:{i_buy})")
-                    elif f_sell > 0 or i_sell > 0: st.error(f"❄️ 매도(외:{f_sell}/기:{i_sell})")
-                    else: st.write("뚜렷한 수급 없음")
-
-                with c2:
-                    st.write("**📊 거래량 폭발**")
-                    if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 거래량 대폭발!")
-                    else: st.write("❌ 거래량 평이함")
-                    
-                    st.write("**🚀 MACD 에너지**")
-                    if curr_m['MACD'] > curr_m['Signal']: st.success("✅ 상승 에너지 우위")
-                    else: st.warning("❌ 에너지 약화 중")
-
-                with c3:
-                    st.write("**🌳 일봉 정배열**")
-                    if is_daily_aligned: st.success("✅ 일봉 정배열 (상승장)")
-                    else: st.warning("❌ 일봉 혼조세")
-            else:
-                st.error("데이터를 불러올 수 없습니다.")
-
-# =====================================================================
-# [탭 2] 코스피 전수조사 (사이드바 통계 추가)
-# =====================================================================
 with tab2:
-    st.subheader("📈 코스피 전체 종목 리포트 생성")
+    st.subheader("📈 시장 전 종목 실시간 스캔 (필터 완화 버전)")
+    st.info("💡 팁: 현재 '최근 3일 내 세력 매수 유입' 종목까지 폭넓게 검색합니다.")
+    
     if st.button("🌟 전수조사 및 엑셀 파일 생성"):
         results = []
         p_bar = st.progress(0)
@@ -168,9 +74,12 @@ with tab2:
         
         start_date = (datetime.today() - timedelta(days=1095)).strftime('%Y-%m-%d')
         
-        for i, (idx, row) in enumerate(krx_list.iterrows()):
-            p_bar.progress((i + 1) / len(krx_list))
-            status_text.text(f"⏳ [{row['Name']}] 분석 중... ({i+1}/{len(krx_list)})")
+        # 셔플을 통해 매번 다른 종목부터 스캔하여 지루함을 방지합니다.
+        search_list = krx_list.sample(frac=1).reset_index(drop=True)
+        
+        for i, (idx, row) in enumerate(search_list.iterrows()):
+            p_bar.progress((i + 1) / len(search_list))
+            status_text.text(f"⏳ [{row['Name']}] 분석 중... ({i+1}/{len(search_list)})")
             
             try:
                 df = get_price_data(row['Code'], start_date)
@@ -180,24 +89,26 @@ with tab2:
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
                 curr_m = m_df.iloc[-1]
                 
-                # 1차 필터: 현재가가 월봉 10이평선 위
-                if curr_m['Close'] > curr_m['MA10']:
+                # 필터 1: 현재가가 10이평선 대비 -2% 이상 (돌파 임박 포함)
+                if curr_m['Close'] >= (curr_m['MA10'] * 0.98):
                     inv_df = get_naver_investor_data(row['Code'])
                     if not inv_df.empty:
-                        f_buy = count_consecutive(inv_df['외국인'], True)
-                        i_buy = count_consecutive(inv_df['기관합계'], True)
+                        # 최근 3일치 수급 확인
+                        recent_3d = inv_df.head(3)
+                        f_sum = recent_3d['외국인'].sum()
+                        i_sum = recent_3d['기관합계'].sum()
                         
-                        # 2차 필터: 외인이나 기관이 사고 있음
-                        if f_buy > 0 or i_buy > 0:
+                        # 필터 2: 최근 3일 합산이 양수(매수 우위)라면 합격!
+                        if f_sum > 0 or i_sum > 0:
                             results.append({
                                 '종목명': row['Name'],
                                 '종목코드': row['Code'],
                                 '현재가': int(curr_m['Close']),
-                                '외인매수': f"{f_buy}일",
-                                '기관매수': f"{i_buy}일",
-                                '거래량배수': round(curr_m['Volume']/m_df.iloc[-2]['Volume'], 1) if len(m_df)>1 else 0
+                                '이평선대비': f"{round((curr_m['Close']/curr_m['MA10'] - 1) * 100, 1)}%",
+                                '최근외인수급': "매수" if f_sum > 0 else "매도",
+                                '최근기관수급': "매수" if i_sum > 0 else "매도"
                             })
-                            found_counter.metric("발견된 황금 종목", f"{len(results)}개")
+                            found_counter.metric("발견된 종목", f"{len(results)}개")
             except: continue
             
         status_text.success(f"✅ 완료! {len(results)}개의 종목을 찾았습니다.")
@@ -207,4 +118,6 @@ with tab2:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 final_df.to_excel(writer, index=False)
-            st.download_button("📥 엑셀 결과 다운로드", output.getvalue(), f"KOSPI_{datetime.today().strftime('%Y%m%d')}.xlsx")
+            st.download_button("📥 엑셀 결과 다운로드", output.getvalue(), f"Stock_Scan_{datetime.today().strftime('%Y%m%d')}.xlsx")
+        else:
+            st.warning("조건을 더 완화했음에도 종목이 없습니다. 시장이 매우 침체기일 수 있습니다.")
