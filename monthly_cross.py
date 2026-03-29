@@ -1,3 +1,4 @@
+print("프로그램이 정상적으로 시작되었습니다! 데이터를 불러옵니다...")
 import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
