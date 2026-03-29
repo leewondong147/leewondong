@@ -1,18 +1,18 @@
-print("프로그램이 정상적으로 시작되었습니다! 데이터를 불러옵니다...")
 import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
 
 def find_monthly_cross_stocks(stock_list):
-    """
-    주어진 종목 리스트에서 월봉 10이동평균선을 상향 돌파(상승 교차)한 종목을 찾습니다.
-    """
-    print("--- 월봉 10이동평균선 상승 교차 종목 검색을 시작합니다 ---")
+    print("--- 🚀 월봉 10이동평균선 상승 교차 종목 검색을 시작합니다 ---")
+    print("인터넷에서 2년 치 데이터를 가져오는 중입니다. 잠시만 기다려주세요...\n")
     
     crossed_stocks = []
     start_date = (datetime.today() - timedelta(days=730)).strftime('%Y-%m-%d')
 
     for code, name in stock_list:
+        # 이 부분이 추가되었습니다! 현재 어떤 종목을 검사 중인지 화면에 출력합니다.
+        print(f"[{name}] 데이터 분석 중... 🔎") 
+        
         try:
             df = fdr.DataReader(code, start_date)
 
@@ -38,6 +38,7 @@ def find_monthly_cross_stocks(stock_list):
                 })
 
         except Exception as e:
+            print(f"[{name}] 데이터를 가져오는 데 실패했습니다: {e}")
             pass
 
     return pd.DataFrame(crossed_stocks)
