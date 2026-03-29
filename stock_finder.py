@@ -6,7 +6,7 @@ import requests
 import time
 import io
 
-st.set_page_config(page_title="EagleEye V5.7 (수급 상세현황 복구)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.8 (수급표 완벽 복구)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -23,34 +23,45 @@ def get_price_data(code, start_date):
     try:
         df = fdr.DataReader(code, start_date)
         if not df.empty:
-            df = df[df['Volume'] > 0] # 주말/가짜 데이터 완벽 제거
+            df = df[df['Volume'] > 0]
         return df
     except:
         return pd.DataFrame()
 
 def get_naver_investor_data(code):
     url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    # 💡 1. 네이버 차단을 뚫기 위한 초강력 실제 브라우저 위장
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
+    }
     try:
-        time.sleep(0.1) 
+        time.sleep(0.3) 
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr'
         dfs = pd.read_html(res.text)
         for df in dfs:
             cols = df.columns
-            if isinstance(cols, pd.MultiIndex): cols = [''.join(c) for c in cols]
-            if any('날짜' in str(c) for c in cols) and any('기관' in str(c) for c in cols):
-                df.columns = [str(c) for c in cols]
+            if isinstance(cols, pd.MultiIndex): cols = [''.join(str(c)) for c in cols]
+            df.columns = [str(c) for c in cols]
+            
+            if any('날짜' in c for c in df.columns) and any('기관' in c for c in df.columns):
                 df = df.dropna(subset=[df.columns[0]])
-                df = df[df[df.columns[0]].str.contains(r'\d{4}\.\d{2}\.\d{2}', na=False)].reset_index(drop=True)
-                inst_col = [c for c in df.columns if '기관' in c][0]
-                forgn_col = [c for c in df.columns if '외국인' in c and '순매매' in c]
-                forgn_col = forgn_col[0] if forgn_col else [c for c in df.columns if '외국인' in c][0]
-                for col in [inst_col, forgn_col]:
-                    df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('+', ''), errors='coerce').fillna(0)
-                return df[['날짜', forgn_col, inst_col]].rename(columns={forgn_col: '외국인', inst_col: '기관합계'})
+                df = df[df[df.columns[0]].astype(str).str.contains(r'\d{4}\.\d{2}\.\d{2}', na=False)].reset_index(drop=True)
+                
+                inst_col = next((c for c in df.columns if '기관' in c), None)
+                forgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
+                if not forgn_col:
+                    forgn_col = next((c for c in df.columns if '외국인' in c), None)
+                    
+                if inst_col and forgn_col:
+                    # 💡 특수기호 완벽 제거 정규식 적용
+                    df[inst_col] = pd.to_numeric(df[inst_col].astype(str).str.replace(r'[,+]', '', regex=True), errors='coerce').fillna(0)
+                    df[forgn_col] = pd.to_numeric(df[forgn_col].astype(str).str.replace(r'[,+]', '', regex=True), errors='coerce').fillna(0)
+                    return df[['날짜', forgn_col, inst_col]].rename(columns={forgn_col: '외국인', inst_col: '기관합계'})
     except: pass
-    return pd.DataFrame()
+    return pd.DataFrame() # 에러나 차단 시 빈 껍데기 반환
 
 def count_consecutive(series, is_buy=True):
     data_list = series.tolist()
@@ -63,7 +74,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.7 (수급 상세 디테일 복구)")
+st.title("🦅 EagleEye V5.8 (상세 수급표 복구 완료)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -111,9 +122,11 @@ with tab1:
                         if curr_price >= curr_m['MA10']: st.success(f"✅ 10MA 위")
                         else: st.error(f"❌ 10MA 아래")
                     with c2:
-                        st.write("**💰 세력 요약**")
-                        if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수(외:{f_buy}/기:{i_buy})")
-                        else: st.write("뚜렷한 연속 수급 없음")
+                        st.write("**💰 세력 수급 요약**")
+                        if not inv_df.empty:
+                            if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수(외:{f_buy}/기:{i_buy})")
+                            else: st.write("뚜렷한 수급 없음")
+                        else: st.warning("수급 확인 불가")
                     with c3:
                         st.write("**🌳 일봉 상태**")
                         if curr_price >= ma20: st.success("✅ 20일선 위 지지")
@@ -130,27 +143,23 @@ with tab1:
                         if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 상승")
                         else: st.warning("❌ MACD 하락")
 
-                    # 💡 사용자 요청: 최근 10일 수급 상세 현황 표 복구!
+                    # 💡 2. 수급 상세표 출력 (차단 시 경고창 띄움)
+                    st.write("---")
+                    st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
+                    
                     if not inv_df.empty:
-                        st.write("---")
-                        st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
-                        
-                        # 깔끔하게 보여주기 위해 10일치만 잘라서 출력 (인덱스 숨김 처리)
                         display_df = inv_df.head(10).copy()
-                        
-                        # 숫자에 콤마(,) 찍어서 가독성 높이기
                         display_df['외국인'] = display_df['외국인'].apply(lambda x: f"{int(x):,}")
                         display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
-                        
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(display_df, use_container_width=True)
+                    else:
+                        st.warning("⚠️ 네이버 금융 서버 차단으로 인해 수급 표를 불러오지 못했습니다. 약 5~10분 후 다시 시도해주세요.")
             else:
                 st.error("데이터가 부족합니다.")
 
 with tab2:
     st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
-    st.write("💡 장기추세+단기추세+MACD 합격 종목 중, 거래량과 수급 조건을 조절하세요.")
     
-    st.markdown("### ⚙️ 필터 옵션 설정")
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
         vol_multiplier = st.slider("📊 당일 거래량 조건 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
@@ -225,7 +234,7 @@ with tab2:
         status_text.success(f"✅ 스캔 완료! 설정 조건에 맞는 {len(results)}개 종목 발견")
         
         if require_sugeub and naver_fail_count > 10:
-            st.error("⚠️ 네이버 수급 데이터 조회가 차단된 것 같습니다. 체크박스를 '해제'하고 다시 돌려보세요!")
+            st.error("⚠️ 네이버 수급 데이터 조회가 차단된 것 같습니다. 체크박스를 '해제'하고 10분 뒤에 다시 돌려보세요!")
             
         if results:
             res_df = pd.DataFrame(results)
