@@ -6,7 +6,7 @@ import requests
 import time
 import io
 
-st.set_page_config(page_title="EagleEye V5.1 (차단 우회 스피드 스캔)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.2 (오차 제로 버전)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -60,13 +60,12 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.1 (차트 초고속 스캔 + 정밀 수급 진단)")
+st.title("🦅 EagleEye V5.2 (HTS 완벽 동기화)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단 (수급 확인용)", "📊 초고속 차트 스캔 (차단 면역)"])
 
 with tab1:
     st.subheader("🔎 종목 진단 (최종 수급 확인)")
-    st.info("💡 탭 2에서 발굴한 종목의 코드를 입력하여 세력(외인/기관) 수급을 최종 확인하세요.")
     
     col_input1, col_input2 = st.columns([3, 1])
     with col_input1:
@@ -77,19 +76,23 @@ with tab1:
     final_code = direct_code if direct_code else (selected_stock.split('(')[1].replace(')', '') if selected_stock != "직접 입력" else "")
 
     if st.button("🚀 정밀 분석 시작") and final_code:
-        with st.spinner(f"[{final_code}] 네이버 수급 데이터 연동 중..."):
-            start_date = (datetime.today() - timedelta(days=1000)).strftime('%Y-%m-%d')
+        with st.spinner(f"[{final_code}] 데이터 분석 중..."):
+            # 💡 HTS와 완벽하게 맞추기 위해 2000일(약 5.5년) 데이터 로드
+            start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
             df = get_price_data(final_code, start_date)
             
-            if not df.empty:
+            if not df.empty and len(df) > 200:
+                # [일봉 지표 계산] - HTS 수식(adjust=False) 완벽 적용
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 ma60 = df['Close'].rolling(60).mean().iloc[-1]
+                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+                df['MACD'] = df['EMA12'] - df['EMA26']
+                df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+                
+                # [월봉 10선 계산]
                 m_df = df.resample('ME').agg({'Close': 'last', 'Volume': 'sum'})
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
-                m_df['EMA12'] = m_df['Close'].ewm(span=12).mean()
-                m_df['EMA26'] = m_df['Close'].ewm(span=26).mean()
-                m_df['MACD'] = m_df['EMA12'] - m_df['EMA26']
-                m_df['Signal'] = m_df['MACD'].ewm(span=9).mean()
                 m_df = m_df.dropna()
                 
                 inv_df = get_naver_investor_data(final_code)
@@ -101,72 +104,76 @@ with tab1:
                 
                 if len(m_df) >= 2:
                     curr_m, prev_m = m_df.iloc[-1], m_df.iloc[-2]
+                    curr_price = df['Close'].iloc[-1]
                     
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        st.write("**📈 장기 추세**")
-                        if curr_m['Close'] > curr_m['MA10']: st.success("✅ 10MA 위")
-                        else: st.error("❌ 10MA 아래")
+                        st.write("**📈 장기 추세 (월봉 10MA)**")
+                        if curr_price >= curr_m['MA10']: st.success(f"✅ 10MA 위 (현재: {int(curr_price)} > 10MA: {int(curr_m['MA10'])})")
+                        else: st.error(f"❌ 10MA 아래 (현재: {int(curr_price)} < 10MA: {int(curr_m['MA10'])})")
                     with c2:
                         st.write("**💰 세력 수급**")
                         if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수(외:{f_buy}/기:{i_buy})")
                         else: st.write("뚜렷한 수급 없음")
                     with c3:
                         st.write("**🌳 일봉 상태**")
-                        if df['Close'].iloc[-1] > ma20: st.success("✅ 20일선 위")
-                        else: st.warning("❌ 20일선 아래")
+                        if curr_price >= ma20: st.success("✅ 20일선 위 지지")
+                        else: st.warning("❌ 20일선 이탈")
 
                     st.write("---")
                     c4, c5 = st.columns(2)
                     with c4:
                         st.write("**📊 거래량 폭발**")
-                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 1.5배 폭발")
+                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 1.5배 이상 폭발")
                         else: st.write("❌ 변화 미비")
                     with c5:
-                        st.write("**🚀 MACD 에너지**")
-                        if curr_m['MACD'] > curr_m['Signal']: st.success("✅ 상승 에너지")
-                        else: st.warning("❌ 에너지 약화")
+                        st.write("**🚀 일봉 MACD 에너지**")
+                        if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 골든크로스/상승")
+                        else: st.warning("❌ MACD 데드크로스/하락")
             else:
-                st.error("데이터를 가져올 수 없습니다.")
+                st.error("데이터가 부족하거나 상장된 지 얼마 안 된 종목입니다.")
 
 with tab2:
-    st.subheader("🖥️ 초고속 차트 필터 스캔 (네이버 차단 면역)")
-    st.write("💡 장기추세(월봉) + 단기추세(일봉) + MACD(에너지)가 완벽한 종목만 초고속으로 먼저 찾아냅니다.")
+    st.subheader("🖥️ 초고속 정밀 차트 스캔")
+    st.write("💡 장기추세(월봉) + 단기추세(일봉) + MACD(에너지)가 완벽한 종목만 초고속으로 찾아냅니다.")
     
-    if st.button("🌟 차단 면역 스캔 시작"):
+    if st.button("🌟 오차 제로 스캔 시작"):
         results = []
         p_bar = st.progress(0)
         status_text = st.empty()
         
-        start_date = (datetime.today() - timedelta(days=1000)).strftime('%Y-%m-%d')
+        # 💡 2000일 데이터 로드
+        start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
         
         for i, (idx, row) in enumerate(krx_list.iterrows()):
             p_bar.progress((i+1)/len(krx_list))
-            status_text.text(f"⏳ [{row['Name']}] 차트 스캔 중...")
+            status_text.text(f"⏳ [{row['Name']}] 차트 렌더링 중...")
             try:
-                # 💡 네이버 수급 조회를 아예 빼버렸습니다! (차단 0%, 초고속)
                 df = get_price_data(row['Code'], start_date)
-                if df.empty or len(df) < 200: continue
+                if df.empty or len(df) < 250: continue # 상장 1년 미만은 제외
                 
+                # 일봉 지표 (HTS 방식 완벽 동기화)
                 curr_price = df['Close'].iloc[-1]
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+                df['MACD'] = df['EMA12'] - df['EMA26']
+                df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+                curr_macd = df['MACD'].iloc[-1]
+                curr_signal = df['Signal'].iloc[-1]
                 
+                # 월봉 지표
                 m_df = df.resample('ME').agg({'Close': 'last'})
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
-                m_df['EMA12'] = m_df['Close'].ewm(span=12).mean()
-                m_df['EMA26'] = m_df['Close'].ewm(span=26).mean()
-                m_df['MACD'] = m_df['EMA12'] - m_df['EMA26']
-                m_df['Signal'] = m_df['MACD'].ewm(span=9).mean()
                 m_df = m_df.dropna()
                 
                 if not m_df.empty:
                     curr_m_ma10 = m_df['MA10'].iloc[-1]
-                    curr_macd = m_df['MACD'].iloc[-1]
-                    curr_signal = m_df['Signal'].iloc[-1]
                     
-                    cond1 = curr_price >= curr_m_ma10        # 장기추세 합격
-                    cond2 = curr_price >= ma20               # 단기 20선 지지 합격
-                    cond3 = curr_macd > curr_signal          # MACD 합격
+                    # 💡 더욱 정교해진 3중 필터
+                    cond1 = curr_price >= curr_m_ma10        # 장기추세 (월봉 10선) 합격
+                    cond2 = curr_price >= ma20               # 단기추세 (일봉 20선) 합격
+                    cond3 = curr_macd > curr_signal          # 단기 에너지 (일봉 MACD) 합격
                     
                     if cond1 and cond2 and cond3:
                         results.append({
@@ -174,15 +181,16 @@ with tab2:
                             '종목명':row['Name'], 
                             '코드':row['Code'], 
                             '현재가':int(curr_price),
-                            '수급확인': '🔍 탭 1에서 확인' # 사용자에게 탭 1 사용을 유도
+                            '10월봉선': int(curr_m_ma10), # HTS 검증용 데이터 추가
+                            '수급확인': '🔍 탭 1에서 확인'
                         })
             except: continue
             
-        status_text.success(f"✅ 스캔 완료! 차트가 완벽한 {len(results)}개 종목 발견")
+        status_text.success(f"✅ 스캔 완료! 오차 없는 차트 합격종목 {len(results)}개 발견")
         if results:
             res_df = pd.DataFrame(results)
             st.dataframe(res_df, use_container_width=True)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 res_df.to_excel(writer, index=False)
-            st.download_button("📥 차트 합격 리스트 다운로드", output.getvalue(), "EagleEye_Fast_Scan.xlsx")
+            st.download_button("📥 HTS 동기화 리스트 다운로드", output.getvalue(), "EagleEye_Sync_Scan.xlsx")
