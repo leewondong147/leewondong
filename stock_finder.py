@@ -6,7 +6,7 @@ import requests
 import time
 import io
 
-st.set_page_config(page_title="EagleEye V5.3 (거래량 철벽 필터)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.4 (상위 1% 초정밀 타격)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -60,12 +60,12 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.3 (거래량 10만주 이상 엄선)")
+st.title("🦅 EagleEye V5.4 (상위 1% 세력 포착기)")
 
-tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단 (수급 확인용)", "📊 거래량 탑재 초고속 스캔"])
+tab1, tab2 = st.tabs(["🔍 개별 정밀 진단", "📊 [VVIP] 6중 필터 초정밀 스캔"])
 
 with tab1:
-    st.subheader("🔎 종목 진단 (최종 수급 확인)")
+    st.subheader("🔎 종목 진단 (최종 5대 지표 점검)")
     
     col_input1, col_input2 = st.columns([3, 1])
     with col_input1:
@@ -131,10 +131,10 @@ with tab1:
                 st.error("데이터가 부족합니다.")
 
 with tab2:
-    st.subheader("🖥️ 초고속 정밀 차트 스캔 (거래량 필터 탑재)")
-    st.write("💡 장기추세 + 단기추세 + MACD + **[평균 거래량 10만주 이상]** 종목만 발굴합니다.")
+    st.subheader("🖥️ 상위 1% 초정밀 스캔 (거래량 폭발 + 수급 탑재)")
+    st.write("💡 장기추세 + 단기추세 + MACD + **[당일 거래량 2배 폭발] + [외인/기관 수급]**을 모두 만족하는 텐배거 후보만 발굴합니다.")
     
-    if st.button("🌟 유동성 탑재 스캔 시작"):
+    if st.button("🌟 VVIP 초정밀 스캔 시작"):
         results = []
         p_bar = st.progress(0)
         status_text = st.empty()
@@ -143,7 +143,7 @@ with tab2:
         
         for i, (idx, row) in enumerate(krx_list.iterrows()):
             p_bar.progress((i+1)/len(krx_list))
-            status_text.text(f"⏳ [{row['Name']}] 차트 및 거래량 분석 중...")
+            status_text.text(f"⏳ [{row['Name']}] 6중 필터 검사 중...")
             try:
                 df = get_price_data(row['Code'], start_date)
                 if df.empty or len(df) < 250: continue 
@@ -151,8 +151,8 @@ with tab2:
                 curr_price = df['Close'].iloc[-1]
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 
-                # 💡 핵심 추가: 20일 평균 거래량 계산
-                avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-1]
+                curr_vol = df['Volume'].iloc[-1]
+                avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2] # 전날까지의 20일 평균
                 
                 df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
                 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
@@ -168,28 +168,39 @@ with tab2:
                 if not m_df.empty:
                     curr_m_ma10 = m_df['MA10'].iloc[-1]
                     
-                    # 💡 4중 초강력 필터 (거래량 포함)
+                    # 💡 5중 차트/유동성 필터 (초고속 처리)
                     cond1 = curr_price >= curr_m_ma10        # 장기추세 합격
                     cond2 = curr_price >= ma20               # 단기추세 합격
-                    cond3 = curr_macd > curr_signal          # MACD 에너지 합격
-                    cond4 = avg_vol_20d >= 100000            # 거래량 10만주 이상 합격!
+                    cond3 = curr_macd > curr_signal          # MACD 합격
+                    cond4 = avg_vol_20d >= 100000            # 기본 유동성 10만주 이상
+                    cond5 = curr_vol >= (avg_vol_20d * 2.0)  # 🔥 당일 거래량이 2배(200%) 이상 폭발!
                     
-                    if cond1 and cond2 and cond3 and cond4:
-                        results.append({
-                            '시장':row['Market'], 
-                            '종목명':row['Name'], 
-                            '코드':row['Code'], 
-                            '현재가':int(curr_price),
-                            '평균거래량': f"{int(avg_vol_20d):,}주", # 결과에 거래량 표시
-                            '수급확인': '🔍 탭 1에서 확인'
-                        })
+                    if cond1 and cond2 and cond3 and cond4 and cond5:
+                        # 위 5개를 통과한 '극소수'의 종목만 네이버에 수급을 물어봅니다. (차단 방지)
+                        inv_df = get_naver_investor_data(row['Code'])
+                        f_sum, i_sum = 0, 0
+                        if not inv_df.empty:
+                            f_sum = inv_df.head(3)['외국인'].sum()
+                            i_sum = inv_df.head(3)['기관합계'].sum()
+                            
+                        cond6 = (f_sum > 0 or i_sum > 0) # 🔥 수급 합격 (외인 또는 기관 매수)
+                        
+                        if cond6:
+                            results.append({
+                                '시장':row['Market'], 
+                                '종목명':row['Name'], 
+                                '코드':row['Code'], 
+                                '현재가':int(curr_price),
+                                '폭발거래량': f"{int(curr_vol):,}주",
+                                '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
+                            })
             except: continue
             
-        status_text.success(f"✅ 스캔 완료! 거래량이 풍부한 진짜배기 {len(results)}개 종목 발견")
+        status_text.success(f"✅ 스캔 완료! 모든 관문을 뚫고 올라온 {len(results)}개의 황금 종목 발견!")
         if results:
             res_df = pd.DataFrame(results)
             st.dataframe(res_df, use_container_width=True)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 res_df.to_excel(writer, index=False)
-            st.download_button("📥 활어 종목 리스트 다운로드", output.getvalue(), "EagleEye_Volume_Scan.xlsx")
+            st.download_button("📥 상위 1% 황금 리스트 다운로드", output.getvalue(), "EagleEye_Top1Percent_Scan.xlsx")
