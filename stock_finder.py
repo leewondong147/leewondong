@@ -7,11 +7,41 @@ import time
 
 st.set_page_config(page_title="스마트 주식 진단기", layout="centered")
 
+# =====================================================================
+# [엔진 1] 종목 리스트 긁어오기 (무적 방어벽 추가!)
+# =====================================================================
 @st.cache_data
 def load_stock_list():
-    krx = fdr.StockListing('KRX')
-    krx['Name_Code'] = krx['Name'] + ' (' + krx['Code'] + ')'
-    return krx
+    try:
+        # 1순위: 평소처럼 쉬운 방법으로 시도합니다. (내 컴퓨터에서는 잘 됨)
+        krx = fdr.StockListing('KRX')
+        krx['Name_Code'] = krx['Name'] + ' (' + krx['Code'] + ')'
+        return krx
+    except Exception:
+        # 2순위: 클라우드에서 차단당하면 이 비밀 통로(한국거래소 직접 접속)가 작동합니다!
+        kospi_url = 'https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt'
+        kosdaq_url = 'https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt'
+        
+        headers = {'User-Agent': 'Mozilla/5.0'} # 사람인 척 위장
+        
+        # 코스피 긁어오기
+        res_kospi = requests.get(kospi_url, headers=headers)
+        res_kospi.encoding = 'euc-kr'
+        kospi = pd.read_html(res_kospi.text, header=0)[0]
+        
+        # 코스닥 긁어오기
+        res_kosdaq = requests.get(kosdaq_url, headers=headers)
+        res_kosdaq.encoding = 'euc-kr'
+        kosdaq = pd.read_html(res_kosdaq.text, header=0)[0]
+        
+        # 두 개를 합쳐서 우리가 쓰기 편한 모양으로 다듬습니다.
+        krx = pd.concat([kospi, kosdaq])
+        krx = krx[['회사명', '종목코드']]
+        krx = krx.rename(columns={'회사명': 'Name', '종목코드': 'Code'})
+        krx['Code'] = krx['Code'].astype(str).str.zfill(6) # 0을 채워서 무조건 6자리 숫자로 만듭니다.
+        
+        krx['Name_Code'] = krx['Name'] + ' (' + krx['Code'] + ')'
+        return krx
 
 @st.cache_data(ttl=3600)
 def get_price_data(code, start_date):
@@ -59,30 +89,24 @@ def get_naver_investor_data(code):
     
     return pd.DataFrame()
 
-# 💡 [기존] 연속 매수(+) 일수를 세는 함수
 def count_consecutive_buys_naver(series):
     count = 0
     data_list = series.tolist()
     if len(data_list) > 0 and data_list[0] == 0:
         data_list = data_list[1:]
     for val in data_list:
-        if val > 0: # 0보다 크면(매수) 카운트!
-            count += 1
-        else:
-            break
+        if val > 0: count += 1
+        else: break
     return count
 
-# 💡 [신규 추가!] 연속 매도(-) 일수를 세는 함수를 새롭게 만들었습니다!
 def count_consecutive_sells_naver(series):
     count = 0
     data_list = series.tolist()
     if len(data_list) > 0 and data_list[0] == 0:
         data_list = data_list[1:]
     for val in data_list:
-        if val < 0: # 0보다 작으면(매도) 카운트!
-            count += 1
-        else:
-            break
+        if val < 0: count += 1
+        else: break
     return count
 
 krx_list = load_stock_list()
@@ -92,9 +116,6 @@ st.write("관심 종목의 매수/매도 타이밍을 분석하거나 황금 종
 
 tab1, tab2 = st.tabs(["🔍 개별 종목 정밀 진단", "🌟 상위 50개 황금 종목 자동 발굴"])
 
-# =====================================================================
-# [탭 1] 개별 종목 정밀 진단 (매도 신호 추가!)
-# =====================================================================
 with tab1:
     default_index = krx_list[krx_list['Code'] == '005930'].index[0] if '005930' in krx_list['Code'].values else 0
     
@@ -128,10 +149,10 @@ with tab1:
         if not investor_df.empty:
             if '외국인' in investor_df.columns:
                 foreigner_buy_days = count_consecutive_buys_naver(investor_df['외국인'])
-                foreigner_sell_days = count_consecutive_sells_naver(investor_df['외국인']) # 매도 일수 추가
+                foreigner_sell_days = count_consecutive_sells_naver(investor_df['외국인'])
             if '기관합계' in investor_df.columns:
                 institution_buy_days = count_consecutive_buys_naver(investor_df['기관합계'])
-                institution_sell_days = count_consecutive_sells_naver(investor_df['기관합계']) # 매도 일수 추가
+                institution_sell_days = count_consecutive_sells_naver(investor_df['기관합계'])
 
         status_msg.empty()
         st.subheader(f"📊 {user_name} ({user_code}) 최종 진단 결과")
@@ -147,7 +168,6 @@ with tab1:
                 prev_month = monthly_df.iloc[-2]
                 curr_month = monthly_df.iloc[-1]
                 
-                # 💡 돌파(매수)와 이탈(매도) 조건을 모두 검사합니다!
                 is_golden_cross = prev_month['Close'] < prev_month['MA10'] and curr_month['Close'] > curr_month['MA10']
                 is_dead_cross = prev_month['Close'] > prev_month['MA10'] and curr_month['Close'] < curr_month['MA10']
                 
@@ -165,7 +185,6 @@ with tab1:
         with col2:
             st.write("**[💰 외국인/기관 수급 진단]**")
             if not investor_df.empty:
-                # 외국인 수급 결과 출력 (매수/매도 분리)
                 if foreigner_buy_days > 0: 
                     st.success(f"👱‍♂️ 외국인: **{foreigner_buy_days}일 연속 매수!** 🔥")
                 elif foreigner_sell_days > 0: 
@@ -173,7 +192,6 @@ with tab1:
                 else: 
                     st.write("👱‍♂️ 외국인: 뚜렷한 연속 수급 없음")
                     
-                # 기관 수급 결과 출력 (매수/매도 분리)
                 if institution_buy_days > 0: 
                     st.success(f"🏢 기 관: **{institution_buy_days}일 연속 매수!** 🔥")
                 elif institution_sell_days > 0: 
@@ -189,9 +207,6 @@ with tab1:
             display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
             st.dataframe(display_df, hide_index=True)
 
-# =====================================================================
-# [탭 2] 시가총액 상위 50개 황금 종목 자동 발굴 (그대로 유지)
-# =====================================================================
 with tab2:
     st.write("시가총액 상위 50개 종목 중에서 **[10이평선 돌파 + 세력 연속 매수]** 조건이 모두 일치하는 종목을 찾습니다.")
     
