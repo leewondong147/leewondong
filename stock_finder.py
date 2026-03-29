@@ -6,10 +6,8 @@ import requests
 import time
 import io
 
-# 1. 화면 설정
-st.set_page_config(page_title="EagleEye V4.9 (VVIP 초강력 필터)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.0 (황금 밸런스)", layout="wide")
 
-# 2. 종목 리스트 로더
 @st.cache_data
 def load_stock_list():
     try:
@@ -21,7 +19,6 @@ def load_stock_list():
     except:
         return pd.DataFrame()
 
-# 3. 데이터 분석 보조 함수들
 def get_price_data(code, start_date):
     try:
         return fdr.DataReader(code, start_date)
@@ -32,7 +29,7 @@ def get_naver_investor_data(code):
     url = f"https://finance.naver.com/item/frgn.naver?code={code}"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        time.sleep(0.1) # 1~3번 관문 통과한 종목만 물어보므로 대기시간 단축 가능
+        time.sleep(0.1) 
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr'
         dfs = pd.read_html(res.text)
@@ -61,12 +58,11 @@ def count_consecutive(series, is_buy=True):
         else: break
     return count
 
-# 메인 로직 시작
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V4.9 (Top 1% 황금종목 추출기)")
+st.title("🦅 EagleEye V5.0 (황금 밸런스 필터)")
 
-tab1, tab2 = st.tabs(["🔍 개별 정밀 진단", "📊 VVIP 5성급 전수조사"])
+tab1, tab2 = st.tabs(["🔍 개별 정밀 진단", "📊 밸런스 우량주 스캔"])
 
 with tab1:
     st.subheader("🔎 종목 진단 (코드 직접 입력 가능)")
@@ -115,8 +111,8 @@ with tab1:
                         else: st.write("뚜렷한 수급 없음")
                     with c3:
                         st.write("**🌳 일봉 상태**")
-                        if df['Close'].iloc[-1] > ma20 > ma60: st.success("✅ 일봉 완벽 정배열")
-                        else: st.warning("❌ 역배열/혼조세")
+                        if df['Close'].iloc[-1] > ma20: st.success("✅ 20일선 위 (단기 상승)")
+                        else: st.warning("❌ 20일선 아래 (단기 하락)")
 
                     st.write("---")
                     c4, c5 = st.columns(2)
@@ -132,8 +128,8 @@ with tab1:
                 st.error("데이터를 가져올 수 없습니다.")
 
 with tab2:
-    st.subheader("🖥️ VVIP 초강력 스캔 (차트 정배열 + MACD + 수급 동시 만족)")
-    if st.button("🌟 초강력 필터 스캔 시작"):
+    st.subheader("🖥️ 황금 밸런스 스캔 (월봉+단기지표+MACD+수급)")
+    if st.button("🌟 밸런스 필터 스캔 시작"):
         results = []
         p_bar = st.progress(0)
         status_text = st.empty()
@@ -147,12 +143,9 @@ with tab2:
                 df = get_price_data(row['Code'], start_date)
                 if df.empty or len(df) < 200: continue
                 
-                # [일봉 계산]
                 curr_price = df['Close'].iloc[-1]
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                ma60 = df['Close'].rolling(60).mean().iloc[-1]
                 
-                # [월봉/MACD 계산]
                 m_df = df.resample('ME').agg({'Close': 'last'})
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
                 m_df['EMA12'] = m_df['Close'].ewm(span=12).mean()
@@ -166,13 +159,12 @@ with tab2:
                     curr_macd = m_df['MACD'].iloc[-1]
                     curr_signal = m_df['Signal'].iloc[-1]
                     
-                    # 💡 4중 초강력 필터 적용
+                    # 💡 밸런스 패치: 정배열(ma20>ma60)을 빼고, 주가가 20선 위에 있는지만 확인!
                     cond1 = curr_price >= curr_m_ma10        # 장기추세 합격
-                    cond2 = curr_price > ma20 > ma60         # 일봉 정배열 합격
-                    cond3 = curr_macd > curr_signal          # MACD 상승에너지 합격
+                    cond2 = curr_price >= ma20               # 단기 20선 지지 합격 (완화됨)
+                    cond3 = curr_macd > curr_signal          # MACD 합격
                     
                     if cond1 and cond2 and cond3:
-                        # 위 3개를 다 통과한 '찐' 우량주만 수급 확인 (속도 대폭 향상)
                         inv_df = get_naver_investor_data(row['Code'])
                         if not inv_df.empty:
                             f_sum = inv_df.head(3)['외국인'].sum()
@@ -189,11 +181,11 @@ with tab2:
                                 })
             except: continue
             
-        status_text.success(f"✅ 스캔 완료! 모든 관문을 통과한 최정예 {len(results)}개 종목 발견")
+        status_text.success(f"✅ 스캔 완료! 황금 밸런스를 통과한 {len(results)}개 종목 발견")
         if results:
             res_df = pd.DataFrame(results)
             st.dataframe(res_df, use_container_width=True)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 res_df.to_excel(writer, index=False)
-            st.download_button("📥 최정예 리스트 다운로드", output.getvalue(), "EagleEye_VVIP_Scan.xlsx")
+            st.download_button("📥 밸런스 리스트 다운로드", output.getvalue(), "EagleEye_Balance_Scan.xlsx")
