@@ -6,7 +6,7 @@ import requests
 import time
 import io
 
-st.set_page_config(page_title="EagleEye V5.5 (커스텀 다이얼 장착)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.7 (수급 상세현황 복구)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -21,7 +21,10 @@ def load_stock_list():
 
 def get_price_data(code, start_date):
     try:
-        return fdr.DataReader(code, start_date)
+        df = fdr.DataReader(code, start_date)
+        if not df.empty:
+            df = df[df['Volume'] > 0] # 주말/가짜 데이터 완벽 제거
+        return df
     except:
         return pd.DataFrame()
 
@@ -60,12 +63,12 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.5 (커스텀 필터 스캐너)")
+st.title("🦅 EagleEye V5.7 (수급 상세 디테일 복구)")
 
-tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 조절하는 초정밀 스캔"])
+tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
 with tab1:
-    st.subheader("🔎 종목 진단 (최종 5대 지표 점검)")
+    st.subheader("🔎 종목 진단 (최종 5대 지표 및 수급 상세)")
     col_input1, col_input2 = st.columns([3, 1])
     with col_input1:
         selected_stock = st.selectbox("리스트에서 선택:", ["직접 입력"] + krx_list['Name_Code'].tolist())
@@ -108,9 +111,9 @@ with tab1:
                         if curr_price >= curr_m['MA10']: st.success(f"✅ 10MA 위")
                         else: st.error(f"❌ 10MA 아래")
                     with c2:
-                        st.write("**💰 세력 수급**")
+                        st.write("**💰 세력 요약**")
                         if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수(외:{f_buy}/기:{i_buy})")
-                        else: st.write("뚜렷한 수급 없음")
+                        else: st.write("뚜렷한 연속 수급 없음")
                     with c3:
                         st.write("**🌳 일봉 상태**")
                         if curr_price >= ma20: st.success("✅ 20일선 위 지지")
@@ -126,22 +129,33 @@ with tab1:
                         st.write("**🚀 일봉 MACD**")
                         if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 상승")
                         else: st.warning("❌ MACD 하락")
+
+                    # 💡 사용자 요청: 최근 10일 수급 상세 현황 표 복구!
+                    if not inv_df.empty:
+                        st.write("---")
+                        st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
+                        
+                        # 깔끔하게 보여주기 위해 10일치만 잘라서 출력 (인덱스 숨김 처리)
+                        display_df = inv_df.head(10).copy()
+                        
+                        # 숫자에 콤마(,) 찍어서 가독성 높이기
+                        display_df['외국인'] = display_df['외국인'].apply(lambda x: f"{int(x):,}")
+                        display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
+                        
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
             else:
                 st.error("데이터가 부족합니다.")
 
 with tab2:
     st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
-    st.write("💡 기본 차트 합격(127개 수준) 종목 중에서, 거래량과 수급 조건을 마우스로 조절해 보세요.")
+    st.write("💡 장기추세+단기추세+MACD 합격 종목 중, 거래량과 수급 조건을 조절하세요.")
     
-    # 💡 사용자 컨트롤 패널 추가
     st.markdown("### ⚙️ 필터 옵션 설정")
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
-        # 거래량 배수를 슬라이더로 조절 (1.0배 ~ 3.0배)
-        vol_multiplier = st.slider("📊 당일 거래량 폭발 조건 (평균의 몇 배?)", min_value=1.0, max_value=3.0, value=1.2, step=0.1)
+        vol_multiplier = st.slider("📊 당일 거래량 조건 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
     with col_opt2:
-        # 수급 필터 적용 여부를 체크박스로 온/오프
-        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수가 있어야 함 (강력 추천)", value=False)
+        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수가 있어야 함", value=False)
 
     if st.button("🌟 커스텀 스캔 시작"):
         results = []
@@ -149,6 +163,7 @@ with tab2:
         status_text = st.empty()
         
         start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
+        naver_fail_count = 0 
         
         for i, (idx, row) in enumerate(krx_list.iterrows()):
             p_bar.progress((i+1)/len(krx_list))
@@ -177,25 +192,22 @@ with tab2:
                 if not m_df.empty:
                     curr_m_ma10 = m_df['MA10'].iloc[-1]
                     
-                    # 💡 기본 차트 & 유동성 조건
                     cond1 = curr_price >= curr_m_ma10        
                     cond2 = curr_price >= ma20               
                     cond3 = curr_macd > curr_signal          
                     cond4 = avg_vol_20d >= 100000            
-                    
-                    # 💡 사용자 맞춤형 거래량 조건 적용
                     cond5 = curr_vol >= (avg_vol_20d * vol_multiplier)  
                     
                     if cond1 and cond2 and cond3 and cond4 and cond5:
-                        
-                        # 수급 필터가 켜져 있으면 네이버를 확인하고, 꺼져있으면 무조건 통과!
                         if require_sugeub:
                             inv_df = get_naver_investor_data(row['Code'])
                             f_sum, i_sum = 0, 0
                             if not inv_df.empty:
                                 f_sum = inv_df.head(3)['외국인'].sum()
                                 i_sum = inv_df.head(3)['기관합계'].sum()
-                            
+                            else:
+                                naver_fail_count += 1
+                                
                             if (f_sum > 0 or i_sum > 0):
                                 results.append({
                                     '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
@@ -203,15 +215,18 @@ with tab2:
                                     '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
                                 })
                         else:
-                            # 수급을 안 볼 때는 그냥 추가
                             results.append({
                                 '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
                                 '현재가':int(curr_price), '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
-                                '세력수급': "미확인 (체크박스 OFF)"
+                                '세력수급': "미확인 (OFF)"
                             })
             except: continue
             
-        status_text.success(f"✅ 스캔 완료! 설정하신 조건에 맞는 {len(results)}개의 종목 발견!")
+        status_text.success(f"✅ 스캔 완료! 설정 조건에 맞는 {len(results)}개 종목 발견")
+        
+        if require_sugeub and naver_fail_count > 10:
+            st.error("⚠️ 네이버 수급 데이터 조회가 차단된 것 같습니다. 체크박스를 '해제'하고 다시 돌려보세요!")
+            
         if results:
             res_df = pd.DataFrame(results)
             st.dataframe(res_df, use_container_width=True)
