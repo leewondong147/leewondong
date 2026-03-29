@@ -2,37 +2,67 @@ import streamlit as st
 import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
-from pykrx import stock
-import time # 💡 기계가 아닌 사람처럼 1초씩 쉬어주기 위한 시간 도구를 추가합니다.
+import requests # 💡 pykrx를 버리고 네이버에서 긁어오기 위한 도구입니다.
 
 st.set_page_config(page_title="스마트 주식 진단기", layout="centered")
 
-# --- [속도 향상 1] 종목 리스트 ---
 @st.cache_data
 def load_stock_list():
     krx = fdr.StockListing('KRX')
     krx['Name_Code'] = krx['Name'] + ' (' + krx['Code'] + ')'
     return krx
 
-# --- [속도 향상 2] 주가 차트 데이터 ---
 @st.cache_data(ttl=3600)
 def get_price_data(code, start_date):
     return fdr.DataReader(code, start_date)
 
-# --- [속도 향상 3 & 차단 방지] 수급 데이터 ---
+# 💡 [핵심 엔진 교체] 네이버 금융에서 20일 치 수급표를 1초 만에 긁어옵니다!
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_investor_data(start_date, end_date, code):
-    time.sleep(1) # 💡 너무 빠른 연속 요청으로 거래소가 차단하지 않도록 1초 대기합니다.
-    df = stock.get_market_trading_volume_by_date(start_date, end_date, code)
+def get_naver_investor_data(code):
+    url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    res = requests.get(url, headers=headers)
+    res.encoding = 'euc-kr'
     
-    # 💡 만약 거래소가 데이터를 안 주고 빈칸을 주면, 에러를 내뿜어서 캐시에 저장되지 않게 막습니다!
-    if df.empty:
-        raise ValueError("KRX_BLOCK") 
-    return df
+    try:
+        dfs = pd.read_html(res.text)
+        for df in dfs:
+            cols = df.columns
+            if isinstance(cols, pd.MultiIndex):
+                cols = [''.join(c) for c in cols]
+            else:
+                cols = cols.astype(str)
+                
+            if any('날짜' in c for c in cols) and any('기관' in c for c in cols) and any('외국인' in c for c in cols):
+                df.columns = cols
+                df = df.dropna(subset=[cols[0]]) 
+                
+                date_col = [c for c in cols if '날짜' in c][0]
+                inst_col = [c for c in cols if '기관' in c][0]
+                forgn_col = [c for c in cols if '외국인' in c and '순매매' in c]
+                if not forgn_col:
+                    forgn_col = [c for c in cols if '외국인' in c][0]
+                else:
+                    forgn_col = forgn_col[0]
+                
+                df = df[df[date_col] != '날짜'] 
+                df = df.reset_index(drop=True)
+                
+                # 콤마, 플러스 기호 떼고 숫자로 변환
+                for col in [inst_col, forgn_col]:
+                    df[col] = df[col].astype(str).str.replace(',', '').str.replace('+', '')
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                
+                df = df.rename(columns={date_col: '날짜', inst_col: '기관합계', forgn_col: '외국인'})
+                return df[['날짜', '외국인', '기관합계']]
+    except Exception as e:
+        pass
+    
+    return pd.DataFrame()
 
 krx_list = load_stock_list()
 
-st.title("🎯 스마트 주식 진단기 (차단 방지 패치 완료!)")
+st.title("🎯 스마트 주식 진단기 (네이버 수급 엔진 장착!)")
 st.write("종목명을 검색하고, 10이평선 돌파 차트와 세력의 수급을 한눈에 확인하세요.")
 
 default_index = krx_list[krx_list['Code'] == '389650'].index[0] if '389650' in krx_list['Code'].values else 0
@@ -48,14 +78,12 @@ user_name = selected_stock.split(' (')[0]
 
 if st.button("🚀 이 종목 진단하기"):
     status_msg = st.empty()
-    
     end_date = datetime.today()
     start_date_2yr = end_date - timedelta(days=730)
-    start_date_short = end_date - timedelta(days=15) 
     
     status_msg.info(f"▶️ [{user_name}] 데이터를 분석 중입니다...")
     
-    # --- [1단계] 주가 데이터 수집 (차트용) ---
+    # --- [1단계] 주가 데이터 수집 ---
     df = get_price_data(user_code, start_date_2yr.strftime('%Y-%m-%d'))
     
     monthly_df = pd.DataFrame()
@@ -64,26 +92,18 @@ if st.button("🚀 이 종목 진단하기"):
         monthly_df['MA10'] = monthly_df['Close'].rolling(window=10).mean()
         monthly_df = monthly_df.dropna()
 
-    # --- [2단계] 수급 데이터 수집 (안전 장치 추가!) ---
-    investor_df = pd.DataFrame()
-    krx_blocked = False # 차단 여부를 기억하는 스위치
-    
-    try:
-        investor_df = get_investor_data(
-            start_date_short.strftime('%Y%m%d'), 
-            end_date.strftime('%Y%m%d'), 
-            user_code
-        )
-    except Exception as e:
-        # 에러가 났다면 거래소 차단 스위치를 켭니다!
-        krx_blocked = True 
+    # --- [2단계] 수급 데이터 수집 (네이버 엔진) ---
+    investor_df = get_naver_investor_data(user_code)
         
-    def count_consecutive_buys(series):
+    def count_consecutive_buys_naver(series):
         count = 0
         data_list = series.tolist()
-        while len(data_list) > 0 and data_list[-1] == 0:
-            data_list.pop()
-        for val in reversed(data_list):
+        
+        # 장중이라 최상단(오늘) 데이터가 0으로 비어있다면 연속 계산에서 잠시 제외합니다.
+        if len(data_list) > 0 and data_list[0] == 0:
+            data_list = data_list[1:]
+            
+        for val in data_list:
             if val > 0:
                 count += 1
             else:
@@ -95,9 +115,9 @@ if st.button("🚀 이 종목 진단하기"):
     
     if not investor_df.empty:
         if '외국인' in investor_df.columns:
-            foreigner_buy_days = count_consecutive_buys(investor_df['외국인'])
+            foreigner_buy_days = count_consecutive_buys_naver(investor_df['외국인'])
         if '기관합계' in investor_df.columns:
-            institution_buy_days = count_consecutive_buys(investor_df['기관합계'])
+            institution_buy_days = count_consecutive_buys_naver(investor_df['기관합계'])
 
     # --- [3단계] 화면 출력 ---
     status_msg.empty()
@@ -129,9 +149,8 @@ if st.button("🚀 이 종목 진단하기"):
     
     with col2:
         st.write("**[💰 외국인/기관 수급 진단]**")
-        # 💡 차단되었을 때 안내 메시지
-        if krx_blocked:
-            st.warning("⚠️ 너무 잦은 검색으로 거래소 서버가 수급 데이터를 일시 차단했습니다.")
+        if investor_df.empty:
+            st.warning("수급 데이터를 가져올 수 없습니다.")
         else:
             if foreigner_buy_days > 0:
                 st.success(f"👱‍♂️ 외국인: **{foreigner_buy_days}일 연속 매수 중!** 🔥")
@@ -144,13 +163,12 @@ if st.button("🚀 이 종목 진단하기"):
                 st.write("🏢 기 관: 연속 매수 없음")
     
     st.write("---")
-    st.write("### 🔎 [크로스 체크용] 최근 수급 상세 내역 (단위: 주)")
-    
-    # 💡 아래 표 부분에도 차단 안내문을 예쁘게 띄워줍니다.
-    if krx_blocked:
-        st.error("🚨 **한국거래소(KRX) 단기 접속 차단 안내**\n\n단시간에 여러 종목을 연속 검색하여 거래소에서 데이터를 차단했습니다. \n\n☕ **커피 한 잔 드시고 약 10~30분 뒤에 다시 검색하시면 정상적으로 표가 나타납니다!**")
-    elif not investor_df.empty and '기관합계' in investor_df.columns:
-        display_df = investor_df[['외국인', '기관합계']].tail(15)
-        st.dataframe(display_df)
+    st.write("### 🔎 [크로스 체크용] 최근 20일 수급 상세 내역 (단위: 주)")
+    if not investor_df.empty:
+        # 천 단위 콤마(,)를 예쁘게 찍어서 표를 보여줍니다.
+        display_df = investor_df.copy()
+        display_df['외국인'] = display_df['외국인'].apply(lambda x: f"{int(x):,}")
+        display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
+        st.dataframe(display_df, hide_index=True)
     else:
-        st.warning("수급 데이터를 표시할 수 없습니다. (신규 상장 또는 거래 정지 종목일 수 있습니다.)")
+        st.error("데이터를 불러오지 못했습니다.")
