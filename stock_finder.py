@@ -6,7 +6,7 @@ import requests
 import time
 import io
 
-st.set_page_config(page_title="EagleEye V5.4 (상위 1% 초정밀 타격)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.5 (커스텀 다이얼 장착)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -60,13 +60,12 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.4 (상위 1% 세력 포착기)")
+st.title("🦅 EagleEye V5.5 (커스텀 필터 스캐너)")
 
-tab1, tab2 = st.tabs(["🔍 개별 정밀 진단", "📊 [VVIP] 6중 필터 초정밀 스캔"])
+tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 조절하는 초정밀 스캔"])
 
 with tab1:
     st.subheader("🔎 종목 진단 (최종 5대 지표 점검)")
-    
     col_input1, col_input2 = st.columns([3, 1])
     with col_input1:
         selected_stock = st.selectbox("리스트에서 선택:", ["직접 입력"] + krx_list['Name_Code'].tolist())
@@ -131,10 +130,20 @@ with tab1:
                 st.error("데이터가 부족합니다.")
 
 with tab2:
-    st.subheader("🖥️ 상위 1% 초정밀 스캔 (거래량 폭발 + 수급 탑재)")
-    st.write("💡 장기추세 + 단기추세 + MACD + **[당일 거래량 2배 폭발] + [외인/기관 수급]**을 모두 만족하는 텐배거 후보만 발굴합니다.")
+    st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
+    st.write("💡 기본 차트 합격(127개 수준) 종목 중에서, 거래량과 수급 조건을 마우스로 조절해 보세요.")
     
-    if st.button("🌟 VVIP 초정밀 스캔 시작"):
+    # 💡 사용자 컨트롤 패널 추가
+    st.markdown("### ⚙️ 필터 옵션 설정")
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        # 거래량 배수를 슬라이더로 조절 (1.0배 ~ 3.0배)
+        vol_multiplier = st.slider("📊 당일 거래량 폭발 조건 (평균의 몇 배?)", min_value=1.0, max_value=3.0, value=1.2, step=0.1)
+    with col_opt2:
+        # 수급 필터 적용 여부를 체크박스로 온/오프
+        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수가 있어야 함 (강력 추천)", value=False)
+
+    if st.button("🌟 커스텀 스캔 시작"):
         results = []
         p_bar = st.progress(0)
         status_text = st.empty()
@@ -143,7 +152,7 @@ with tab2:
         
         for i, (idx, row) in enumerate(krx_list.iterrows()):
             p_bar.progress((i+1)/len(krx_list))
-            status_text.text(f"⏳ [{row['Name']}] 6중 필터 검사 중...")
+            status_text.text(f"⏳ [{row['Name']}] 설정하신 조건으로 검색 중...")
             try:
                 df = get_price_data(row['Code'], start_date)
                 if df.empty or len(df) < 250: continue 
@@ -152,7 +161,7 @@ with tab2:
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 
                 curr_vol = df['Volume'].iloc[-1]
-                avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2] # 전날까지의 20일 평균
+                avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2]
                 
                 df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
                 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
@@ -168,39 +177,45 @@ with tab2:
                 if not m_df.empty:
                     curr_m_ma10 = m_df['MA10'].iloc[-1]
                     
-                    # 💡 5중 차트/유동성 필터 (초고속 처리)
-                    cond1 = curr_price >= curr_m_ma10        # 장기추세 합격
-                    cond2 = curr_price >= ma20               # 단기추세 합격
-                    cond3 = curr_macd > curr_signal          # MACD 합격
-                    cond4 = avg_vol_20d >= 100000            # 기본 유동성 10만주 이상
-                    cond5 = curr_vol >= (avg_vol_20d * 2.0)  # 🔥 당일 거래량이 2배(200%) 이상 폭발!
+                    # 💡 기본 차트 & 유동성 조건
+                    cond1 = curr_price >= curr_m_ma10        
+                    cond2 = curr_price >= ma20               
+                    cond3 = curr_macd > curr_signal          
+                    cond4 = avg_vol_20d >= 100000            
+                    
+                    # 💡 사용자 맞춤형 거래량 조건 적용
+                    cond5 = curr_vol >= (avg_vol_20d * vol_multiplier)  
                     
                     if cond1 and cond2 and cond3 and cond4 and cond5:
-                        # 위 5개를 통과한 '극소수'의 종목만 네이버에 수급을 물어봅니다. (차단 방지)
-                        inv_df = get_naver_investor_data(row['Code'])
-                        f_sum, i_sum = 0, 0
-                        if not inv_df.empty:
-                            f_sum = inv_df.head(3)['외국인'].sum()
-                            i_sum = inv_df.head(3)['기관합계'].sum()
-                            
-                        cond6 = (f_sum > 0 or i_sum > 0) # 🔥 수급 합격 (외인 또는 기관 매수)
                         
-                        if cond6:
+                        # 수급 필터가 켜져 있으면 네이버를 확인하고, 꺼져있으면 무조건 통과!
+                        if require_sugeub:
+                            inv_df = get_naver_investor_data(row['Code'])
+                            f_sum, i_sum = 0, 0
+                            if not inv_df.empty:
+                                f_sum = inv_df.head(3)['외국인'].sum()
+                                i_sum = inv_df.head(3)['기관합계'].sum()
+                            
+                            if (f_sum > 0 or i_sum > 0):
+                                results.append({
+                                    '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
+                                    '현재가':int(curr_price), '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
+                                    '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
+                                })
+                        else:
+                            # 수급을 안 볼 때는 그냥 추가
                             results.append({
-                                '시장':row['Market'], 
-                                '종목명':row['Name'], 
-                                '코드':row['Code'], 
-                                '현재가':int(curr_price),
-                                '폭발거래량': f"{int(curr_vol):,}주",
-                                '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
+                                '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
+                                '현재가':int(curr_price), '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
+                                '세력수급': "미확인 (체크박스 OFF)"
                             })
             except: continue
             
-        status_text.success(f"✅ 스캔 완료! 모든 관문을 뚫고 올라온 {len(results)}개의 황금 종목 발견!")
+        status_text.success(f"✅ 스캔 완료! 설정하신 조건에 맞는 {len(results)}개의 종목 발견!")
         if results:
             res_df = pd.DataFrame(results)
             st.dataframe(res_df, use_container_width=True)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 res_df.to_excel(writer, index=False)
-            st.download_button("📥 상위 1% 황금 리스트 다운로드", output.getvalue(), "EagleEye_Top1Percent_Scan.xlsx")
+            st.download_button("📥 맞춤형 리스트 다운로드", output.getvalue(), "EagleEye_Custom_Scan.xlsx")
