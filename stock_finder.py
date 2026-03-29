@@ -6,18 +6,29 @@ from pykrx import stock
 
 st.set_page_config(page_title="스마트 주식 진단기", layout="centered")
 
+# --- [속도 향상 1] 종목 리스트 기억하기 ---
 @st.cache_data
 def load_stock_list():
     krx = fdr.StockListing('KRX')
     krx['Name_Code'] = krx['Name'] + ' (' + krx['Code'] + ')'
     return krx
 
+# --- [속도 향상 2] 주가 차트 데이터 기억하기 (1시간 유지) ---
+@st.cache_data(ttl=3600)
+def get_price_data(code, start_date):
+    return fdr.DataReader(code, start_date)
+
+# --- [속도 향상 3] 수급 데이터 기억하기 (1시간 유지) ---
+@st.cache_data(ttl=3600)
+def get_investor_data(start_date, end_date, code):
+    return stock.get_market_trading_volume_by_date(start_date, end_date, code)
+
+
 krx_list = load_stock_list()
 
-st.title("🎯 스마트 주식 진단기 (수급 검증 기능 포함)")
-st.write("종목명을 검색하고, 10이평선 돌파 여부와 세력의 수급을 한눈에 확인하세요.")
+st.title("🎯 스마트 주식 진단기 (최종 완성본)")
+st.write("종목명을 검색하고, 10이평선 돌파 차트와 세력의 수급을 한눈에 확인하세요.")
 
-# 기본값을 넥스트바이오메디컬 코드로 설정해두겠습니다! (테스트용)
 default_index = krx_list[krx_list['Code'] == '389650'].index[0] if '389650' in krx_list['Code'].values else 0
 
 selected_stock = st.selectbox(
@@ -30,46 +41,45 @@ user_code = selected_stock.split('(')[1].replace(')', '')
 user_name = selected_stock.split(' (')[0]
 
 if st.button("🚀 이 종목 진단하기"):
-    st.info(f"[{user_name}] 데이터를 열심히 분석하고 있습니다...")
+    status_msg = st.empty()
     
     end_date = datetime.today()
     start_date_2yr = end_date - timedelta(days=730)
-    start_date_30d = end_date - timedelta(days=45) # 넉넉하게 45일치 조회
+    start_date_short = end_date - timedelta(days=15) 
     
     try:
-        # --- [1] 차트 분석 ---
-        df = fdr.DataReader(user_code, start_date_2yr.strftime('%Y-%m-%d'))
+        status_msg.info(f"▶️ [{user_name}] 데이터를 분석 중입니다. 처음 검색 시 거래소 지연으로 10~20초 정도 소요될 수 있습니다...")
+        
+        # --- [1단계] 주가 데이터 수집 (캐시 사용) ---
+        df = get_price_data(user_code, start_date_2yr.strftime('%Y-%m-%d'))
         
         if df.empty or len(df) < 200:
-            st.warning("상장된 지 얼마 되지 않아 장기 추세(10개월 월봉) 데이터를 모두 분석하기 어렵습니다. (최근 데이터만 반영)")
+            st.warning("상장된 지 얼마 되지 않아 10개월 월봉 데이터를 모두 분석하기 어렵습니다.")
             monthly_df = df.resample('ME').agg({'Close': 'last'})
             if len(monthly_df) >= 10:
                 monthly_df['MA10'] = monthly_df['Close'].rolling(window=10).mean()
                 monthly_df = monthly_df.dropna()
             else:
-                monthly_df = pd.DataFrame() # 데이터 부족 시 빈 표로 둡니다.
+                monthly_df = pd.DataFrame()
         else:
             monthly_df = df.resample('ME').agg({'Close': 'last'})
             monthly_df['MA10'] = monthly_df['Close'].rolling(window=10).mean()
             monthly_df = monthly_df.dropna()
 
-        # --- [2] 수급 분석 (로직 개선!) ---
-        investor_df = stock.get_market_trading_volume_by_date(
-            start_date_30d.strftime('%Y%m%d'), 
+        # --- [2단계] 수급 데이터 수집 (캐시 사용) ---
+        investor_df = get_investor_data(
+            start_date_short.strftime('%Y%m%d'), 
             end_date.strftime('%Y%m%d'), 
             user_code
         )
         
-        # 💡 개선된 연속 매수 계산 로직
         def count_consecutive_buys(series):
             count = 0
             data_list = series.tolist()
             
-            # (핵심 로직) 끝에 있는 데이터가 0이면 아직 장중이거나 미집계 상태이므로 삭제합니다!
             while len(data_list) > 0 and data_list[-1] == 0:
                 data_list.pop()
                 
-            # 뒤에서부터 거꾸로 순회하며 연속 매수를 셉니다.
             for val in reversed(data_list):
                 if val > 0:
                     count += 1
@@ -86,9 +96,18 @@ if st.button("🚀 이 종목 진단하기"):
             if '기관합계' in investor_df.columns:
                 institution_buy_days = count_consecutive_buys(investor_df['기관합계'])
 
-        # --- [3] 진단 결과 화면 출력 ---
+        # --- [3단계] 화면 출력 ---
+        status_msg.empty() # 분석이 끝나면 안내 문구를 깔끔하게 지웁니다.
+        
         st.write("---")
         st.subheader(f"📊 {user_name} ({user_code}) 최종 진단 결과")
+        
+        # 💡 [새로운 기능] 주가 흐름을 보여주는 예쁜 꺾은선 차트 그리기
+        if not monthly_df.empty and len(monthly_df) >= 2:
+            st.write("#### 📈 월봉 및 10개월 이평선 차트")
+            # 그래프에 표시될 이름(범례)을 예쁘게 바꿔줍니다.
+            chart_df = monthly_df[['Close', 'MA10']].rename(columns={'Close': '월봉 종가', 'MA10': '10개월 이평선'})
+            st.line_chart(chart_df)
         
         col1, col2 = st.columns(2)
         
@@ -120,17 +139,13 @@ if st.button("🚀 이 종목 진단하기"):
             else:
                 st.write("🏢 기 관: 연속 매수 없음")
         
-        # --- [4] 크로스 체크를 위한 수급 원본 데이터 공개 (새로 추가됨!) ---
         st.write("---")
         st.write("### 🔎 [크로스 체크용] 최근 수급 상세 내역 (단위: 주)")
-        st.caption("증권사 앱의 일별 수급 데이터와 아래 표가 일치하는지 확인해 보세요. (가장 아래쪽이 최근 날짜입니다.)")
-        
         if not investor_df.empty and '기관합계' in investor_df.columns:
-            # 외국인과 기관합계 열만 뽑아서 최근 15일 치를 보여줍니다.
             display_df = investor_df[['외국인', '기관합계']].tail(15)
             st.dataframe(display_df)
         else:
             st.warning("수급 데이터를 표시할 수 없습니다.")
             
     except Exception as e:
-        st.error(f"데이터를 가져오거나 분석하는 중 오류가 발생했습니다: {e}")
+        status_msg.error(f"오류가 발생했습니다: {e}")
