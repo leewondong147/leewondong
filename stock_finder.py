@@ -4,9 +4,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import requests
 import time
+import re
 import io
 
-st.set_page_config(page_title="EagleEye V5.8 (수급표 완벽 복구)", layout="wide")
+st.set_page_config(page_title="EagleEye V5.9 (수급 무적 텍스트 추출)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -30,38 +31,53 @@ def get_price_data(code, start_date):
 
 def get_naver_investor_data(code):
     url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-    # 💡 1. 네이버 차단을 뚫기 위한 초강력 실제 브라우저 위장
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
     }
     try:
-        time.sleep(0.3) 
+        time.sleep(0.1) 
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr'
-        dfs = pd.read_html(res.text)
-        for df in dfs:
-            cols = df.columns
-            if isinstance(cols, pd.MultiIndex): cols = [''.join(str(c)) for c in cols]
-            df.columns = [str(c) for c in cols]
+        
+        if res.status_code != 200:
+            return pd.DataFrame(), f"네이버 서버 차단 (HTTP 상태코드 {res.status_code})"
             
-            if any('날짜' in c for c in df.columns) and any('기관' in c for c in df.columns):
-                df = df.dropna(subset=[df.columns[0]])
-                df = df[df[df.columns[0]].astype(str).str.contains(r'\d{4}\.\d{2}\.\d{2}', na=False)].reset_index(drop=True)
+        html = res.text
+        
+        # 💡 [핵심 해결책] 오류가 잦은 pandas 표 읽기 대신, 정규식으로 '텍스트'만 강제 추출합니다!
+        blocks = re.findall(r'<tr onmouseover="mouseOver\(this\)" onmouseout="mouseOut\(this\)">(.*?)</tr>', html, re.DOTALL)
+        
+        results = []
+        for block in blocks:
+            # HTML 태그(<...>)를 모두 공백으로 지워버리고 순수 글자만 남김
+            text = re.sub(r'<[^>]+>', ' ', block)
+            tokens = text.split()
+            
+            # 9개의 데이터(날짜, 종가, 등락, ... 기관, 외인)가 모두 존재하는 정상적인 줄만 추출
+            if len(tokens) >= 7 and '.' in tokens[0]:
+                date_str = tokens[0]
+                inst_str = tokens[5].replace(',', '').replace('+', '')
+                forgn_str = tokens[6].replace(',', '').replace('+', '')
                 
-                inst_col = next((c for c in df.columns if '기관' in c), None)
-                forgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
-                if not forgn_col:
-                    forgn_col = next((c for c in df.columns if '외국인' in c), None)
+                try:
+                    results.append({
+                        '날짜': date_str,
+                        '외국인': int(forgn_str),
+                        '기관합계': int(inst_str)
+                    })
+                except:
+                    pass
                     
-                if inst_col and forgn_col:
-                    # 💡 특수기호 완벽 제거 정규식 적용
-                    df[inst_col] = pd.to_numeric(df[inst_col].astype(str).str.replace(r'[,+]', '', regex=True), errors='coerce').fillna(0)
-                    df[forgn_col] = pd.to_numeric(df[forgn_col].astype(str).str.replace(r'[,+]', '', regex=True), errors='coerce').fillna(0)
-                    return df[['날짜', forgn_col, inst_col]].rename(columns={forgn_col: '외국인', inst_col: '기관합계'})
-    except: pass
-    return pd.DataFrame() # 에러나 차단 시 빈 껍데기 반환
+        df = pd.DataFrame(results)
+        
+        if not df.empty:
+            return df, "정상 처리됨"
+        else:
+            return pd.DataFrame(), "수급 표 텍스트를 찾을 수 없음 (네이버 화면 변경 의심)"
+            
+    except Exception as e:
+        return pd.DataFrame(), f"파이썬 내부 에러 발생: {str(e)}"
 
 def count_consecutive(series, is_buy=True):
     data_list = series.tolist()
@@ -74,7 +90,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.8 (상세 수급표 복구 완료)")
+st.title("🦅 EagleEye V5.9 (수급 무적 강제추출판)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -105,7 +121,9 @@ with tab1:
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
                 m_df = m_df.dropna()
                 
-                inv_df = get_naver_investor_data(final_code)
+                # 💡 수급 데이터와 '에러 메시지'를 동시에 가져옴
+                inv_df, inv_msg = get_naver_investor_data(final_code)
+                
                 f_buy = count_consecutive(inv_df['외국인'], True) if not inv_df.empty else 0
                 i_buy = count_consecutive(inv_df['기관합계'], True) if not inv_df.empty else 0
 
@@ -133,18 +151,8 @@ with tab1:
                         else: st.warning("❌ 20일선 이탈")
 
                     st.write("---")
-                    c4, c5 = st.columns(2)
-                    with c4:
-                        st.write("**📊 거래량 폭발**")
-                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 1.5배 이상 폭발")
-                        else: st.write("❌ 변화 미비")
-                    with c5:
-                        st.write("**🚀 일봉 MACD**")
-                        if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 상승")
-                        else: st.warning("❌ MACD 하락")
-
-                    # 💡 2. 수급 상세표 출력 (차단 시 경고창 띄움)
-                    st.write("---")
+                    
+                    # 💡 수급 상세표 출력 로직 (실패 시 정확한 에러 원인 출력)
                     st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
                     
                     if not inv_df.empty:
@@ -153,7 +161,7 @@ with tab1:
                         display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
                         st.dataframe(display_df, use_container_width=True)
                     else:
-                        st.warning("⚠️ 네이버 금융 서버 차단으로 인해 수급 표를 불러오지 못했습니다. 약 5~10분 후 다시 시도해주세요.")
+                        st.error(f"🚨 수급 표를 불러오지 못했습니다. 원인 ➔ [ {inv_msg} ]")
             else:
                 st.error("데이터가 부족합니다.")
 
@@ -173,6 +181,7 @@ with tab2:
         
         start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
         naver_fail_count = 0 
+        last_error_msg = ""
         
         for i, (idx, row) in enumerate(krx_list.iterrows()):
             p_bar.progress((i+1)/len(krx_list))
@@ -209,13 +218,14 @@ with tab2:
                     
                     if cond1 and cond2 and cond3 and cond4 and cond5:
                         if require_sugeub:
-                            inv_df = get_naver_investor_data(row['Code'])
+                            inv_df, msg = get_naver_investor_data(row['Code'])
                             f_sum, i_sum = 0, 0
                             if not inv_df.empty:
                                 f_sum = inv_df.head(3)['외국인'].sum()
                                 i_sum = inv_df.head(3)['기관합계'].sum()
                             else:
                                 naver_fail_count += 1
+                                last_error_msg = msg
                                 
                             if (f_sum > 0 or i_sum > 0):
                                 results.append({
@@ -233,8 +243,8 @@ with tab2:
             
         status_text.success(f"✅ 스캔 완료! 설정 조건에 맞는 {len(results)}개 종목 발견")
         
-        if require_sugeub and naver_fail_count > 10:
-            st.error("⚠️ 네이버 수급 데이터 조회가 차단된 것 같습니다. 체크박스를 '해제'하고 10분 뒤에 다시 돌려보세요!")
+        if require_sugeub and naver_fail_count > 0:
+            st.error(f"🚨 수급을 확인하지 못한 종목이 있습니다. 가장 최근 에러 원인 ➔ [ {last_error_msg} ]")
             
         if results:
             res_df = pd.DataFrame(results)
