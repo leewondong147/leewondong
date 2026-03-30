@@ -7,7 +7,7 @@ import time
 import re
 import io
 
-st.set_page_config(page_title="EagleEye V5.9 (수급 무적 텍스트 추출)", layout="wide")
+st.set_page_config(page_title="EagleEye V6.0 (수급 완전 정복)", layout="wide")
 
 @st.cache_data
 def load_stock_list():
@@ -45,36 +45,40 @@ def get_naver_investor_data(code):
             
         html = res.text
         
-        # 💡 [핵심 해결책] 오류가 잦은 pandas 표 읽기 대신, 정규식으로 '텍스트'만 강제 추출합니다!
-        blocks = re.findall(r'<tr onmouseover="mouseOver\(this\)" onmouseout="mouseOut\(this\)">(.*?)</tr>', html, re.DOTALL)
+        # 💡 [V6.0 핵심 해결책] 디자인 태그 무시하고 테이블 데이터(<td>) 뼈대만 정밀 추출
+        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
         
         results = []
-        for block in blocks:
-            # HTML 태그(<...>)를 모두 공백으로 지워버리고 순수 글자만 남김
-            text = re.sub(r'<[^>]+>', ' ', block)
-            tokens = text.split()
+        for row in rows:
+            # 한 줄(tr) 안에서 각 칸(td)을 리스트로 뽑아냄
+            tds = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
             
-            # 9개의 데이터(날짜, 종가, 등락, ... 기관, 외인)가 모두 존재하는 정상적인 줄만 추출
-            if len(tokens) >= 7 and '.' in tokens[0]:
-                date_str = tokens[0]
-                inst_str = tokens[5].replace(',', '').replace('+', '')
-                forgn_str = tokens[6].replace(',', '').replace('+', '')
+            # 네이버 수급표는 날짜부터 보유율까지 총 9칸으로 이루어져 있음 (최소 7칸 이상이면 데이터 줄로 간주)
+            if len(tds) >= 7:
+                # 태그(<...>)와 불필요한 공백/특수문자 제거
+                clean_tds = [re.sub(r'<[^>]+>', '', td).replace('&nbsp;', '').strip() for td in tds]
+                date_str = clean_tds[0]
                 
-                try:
-                    results.append({
-                        '날짜': date_str,
-                        '외국인': int(forgn_str),
-                        '기관합계': int(inst_str)
-                    })
-                except:
-                    pass
+                # 첫 번째 칸이 'YYYY.MM.DD' 형태의 날짜인지 확인
+                if re.match(r'^\d{4}\.\d{2}\.\d{2}$', date_str):
+                    inst_str = clean_tds[5].replace(',', '').replace('+', '')
+                    forgn_str = clean_tds[6].replace(',', '').replace('+', '')
                     
+                    try:
+                        results.append({
+                            '날짜': date_str,
+                            '외국인': int(forgn_str),
+                            '기관합계': int(inst_str)
+                        })
+                    except:
+                        pass
+                        
         df = pd.DataFrame(results)
         
         if not df.empty:
             return df, "정상 처리됨"
         else:
-            return pd.DataFrame(), "수급 표 텍스트를 찾을 수 없음 (네이버 화면 변경 의심)"
+            return pd.DataFrame(), "수급 표 텍스트를 찾을 수 없음 (데이터 없음)"
             
     except Exception as e:
         return pd.DataFrame(), f"파이썬 내부 에러 발생: {str(e)}"
@@ -90,7 +94,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V5.9 (수급 무적 강제추출판)")
+st.title("🦅 EagleEye V6.0 (수급 데이터 완전 정복)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -121,7 +125,6 @@ with tab1:
                 m_df['MA10'] = m_df['Close'].rolling(10).mean()
                 m_df = m_df.dropna()
                 
-                # 💡 수급 데이터와 '에러 메시지'를 동시에 가져옴
                 inv_df, inv_msg = get_naver_investor_data(final_code)
                 
                 f_buy = count_consecutive(inv_df['외국인'], True) if not inv_df.empty else 0
@@ -151,8 +154,17 @@ with tab1:
                         else: st.warning("❌ 20일선 이탈")
 
                     st.write("---")
-                    
-                    # 💡 수급 상세표 출력 로직 (실패 시 정확한 에러 원인 출력)
+                    c4, c5 = st.columns(2)
+                    with c4:
+                        st.write("**📊 거래량 폭발**")
+                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 1.5배 이상 폭발")
+                        else: st.write("❌ 변화 미비")
+                    with c5:
+                        st.write("**🚀 일봉 MACD**")
+                        if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 상승")
+                        else: st.warning("❌ MACD 하락")
+
+                    st.write("---")
                     st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
                     
                     if not inv_df.empty:
