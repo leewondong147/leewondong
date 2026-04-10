@@ -5,7 +5,7 @@ from collections import Counter
 
 # 1. 페이지 설정
 st.set_page_config(
-    page_title="프리미엄 로또 번호 분석기",
+    page_title="프리미엄 로또 분석기 v2.0",
     page_icon="🎰",
     layout="wide"
 )
@@ -19,67 +19,59 @@ if 'lotto_history' not in st.session_state:
 def load_lotto_data():
     try:
         df = pd.read_csv('lotto_data.csv')
-        # '회차' 기준 내림차순 정렬
         if '회차' in df.columns:
             df = df.sort_values(by='회차', ascending=False)
         return df
     except FileNotFoundError:
         return None
 
-# --- 메인 화면 구성 ---
+# --- 데이터 준비 ---
 df = load_lotto_data()
 
-st.title("🎰 통계 기반 로또 추천 & 공유 시스템")
-st.markdown("---")
-
 if df is not None:
-    # 사이드바 설정
-    st.sidebar.header("⚙️ 조건 필터 설정")
-    include_nums = st.sidebar.multiselect("⭐ 반드시 포함 (최대 3개)", options=list(range(1, 46)), max_selections=3)
-    exclude_nums = st.sidebar.multiselect("❌ 제외할 번호", options=list(range(1, 46)))
+    # 데이터 정의
+    latest_round = df['회차'].iloc[0]
+    cols = ['번호1', '번호2', '번호3', '번호4', '번호5', '번호6']
     
-    st.sidebar.divider()
-    st.sidebar.info("""
-    **🛡️ 적용된 당첨 최적화 필터**
-    1. **홀짝 비율**: 2:4, 3:3, 4:2만 허용
-    2. **총합 범위**: 100 ~ 175 사이만 허용
-    3. **연속 제한**: 3개 이상 연속 번호 금지
-    """)
+    st.title("🎰 프리미엄 로또 추천 & 전략 분석")
+    st.info(f"✅ 현재 **{latest_round}회**차 데이터를 기준으로 최적의 필터링을 수행합니다.")
 
-    # 최신 회차 정보 추출
-    latest_round = df['회차'].iloc[0] # 가장 위에 있는 회차 번호 (예: 1215)
-    total_count = len(df)          # 전체 데이터 개수 (예: 216)
-    
-    st.info(f"✅ 현재 **{latest_round}회**까지의 데이터를 분석 중입니다. (총 {total_count}개 회차 데이터 활용)")
+    # 사이드바: 전략 설정
+    st.sidebar.header("🎯 당첨 전략 설정")
+    include_nums = st.sidebar.multiselect("⭐ 포함할 번호 (추천: 최근 5주 핫넘버 중 1-2개)", options=list(range(1, 46)), max_selections=3)
+    exclude_nums = st.sidebar.multiselect("❌ 제외할 번호 (추천: 직전 회차 번호 일부)", options=list(range(1, 46)))
 
-    tab1, tab2 = st.tabs(["🎯 번호 생성 및 공유", "📊 전체 통계 분석"])
+    tab1, tab2 = st.tabs(["🎯 번호 생성 및 공유", "📊 트렌드 분석 통계"])
 
     with tab1:
         col_gen, col_hist = st.columns([2, 1])
-
         with col_gen:
-            st.subheader("번호 추출하기")
-            if st.button("🚀 분석 기반 번호 생성", use_container_width=True):
-                cols = ['번호1', '번호2', '번호3', '번호4', '번호5', '번호6']
+            st.subheader("최적 조합 추출")
+            if st.button("🚀 필터링 적용 번호 생성", use_container_width=True):
+                # 전체 데이터 기반 빈도
                 all_nums = df[cols].values.flatten().tolist()
                 counts = Counter(all_nums)
                 
-                hot_candidates = [n for n, c in counts.most_common(20) if n not in exclude_nums]
-                cold_candidates = [n for n in range(1, 46) if n not in exclude_nums]
-
+                # 생성 로직
                 success = False
-                for _ in range(300):
+                for _ in range(500): # 시도 횟수 상향
                     res = set(include_nums)
                     needed = 6 - len(res)
-                    mix_pool = list(set(hot_candidates + random.sample(cold_candidates, 10)))
-                    res.update(random.sample([n for n in mix_pool if n not in res], needed))
+                    # 핫넘버(상위 20개)에서 일부, 전체에서 일부 섞기
+                    pool = [n for n, c in counts.most_common(20) if n not in exclude_nums]
+                    random_pool = [n for n in range(1, 46) if n not in exclude_nums and n not in res]
+                    
+                    if len(random_pool) < needed: break
+                    res.update(random.sample(random_pool, needed))
                     
                     final_list = sorted(list(res))
                     
-                    # 필터링
-                    if not (100 <= sum(final_list) <= 175): continue
+                    # [필터 적용]
+                    if not (100 <= sum(final_list) <= 175): continue # 총합
                     odds = len([n for n in final_list if n % 2 != 0])
-                    if odds not in [2, 3, 4]: continue
+                    if odds not in [2, 3, 4]: continue # 홀짝비율
+                    
+                    # 연속 번호 체크
                     is_consecutive = False
                     for i in range(len(final_list)-2):
                         if final_list[i]+1 == final_list[i+1] and final_list[i+1]+1 == final_list[i+2]:
@@ -91,37 +83,49 @@ if df is not None:
 
                 if success:
                     st.balloons()
-                    st.success(f"### 🎊 이번 주 추천 번호: {final_list}")
-                    
-                    # 🌟 [수정 부분] 공유용 텍스트: total_count 대신 latest_round 사용
-                    st.write("📋 **친구에게 공유하기 (아래 박스 오른쪽 복사 클릭)**")
-                    share_text = f"🎰 [로또 분석기 추천]\n기준회차: {latest_round}회차\n추천번호: {final_list}\n함께 1등 가자! 🚀"
+                    st.success(f"### 🎊 추천 번호: {final_list}")
+                    share_text = f"🎰 [로또 추천]\n기준: {latest_round}회차\n번호: {final_list}\n함께 행운을! ✨"
                     st.code(share_text, language=None)
-                    
                     st.session_state['lotto_history'].insert(0, final_list)
                 else:
-                    st.error("조건에 맞는 조합을 찾지 못했습니다. 제외 번호를 줄여보세요.")
+                    st.error("조건에 맞는 조합을 찾지 못했습니다. 제외 번호를 줄여주세요.")
 
         with col_hist:
-            st.subheader("📜 최근 생성 이력")
+            st.subheader("📜 생성 이력")
             if st.session_state['lotto_history']:
-                for i, h in enumerate(st.session_state['lotto_history'][:10]):
+                for i, h in enumerate(st.session_state['lotto_history'][:8]):
                     st.write(f"**{i+1}회:** `{h}`")
                 if st.button("이력 삭제"):
                     st.session_state['lotto_history'] = []
                     st.rerun()
-            else:
-                st.write("아직 생성된 번호가 없습니다.")
 
     with tab2:
-        st.subheader("📈 번호별 출현 빈도 순위")
-        all_nums_all = df[['번호1', '번호2', '번호3', '번호4', '번호5', '번호6']].values.flatten().tolist()
-        cnt = Counter(all_nums_all)
-        freq_df = pd.DataFrame(cnt.most_common(45), columns=['번호', '빈도']).set_index('번호')
-        st.bar_chart(freq_df)
+        st.subheader("🔥 최근 트렌드 분석")
         
-        st.subheader("📅 데이터 확인 (최근 10회차)")
-        st.dataframe(df.head(10), use_container_width=True)
+        # 🌟 최근 5주 데이터 추출 및 분석
+        recent_5_df = df.head(5)
+        recent_5_nums = recent_5_df[cols].values.flatten().tolist()
+        recent_5_counts = Counter(recent_5_nums)
+        
+        col_t1, col_t2 = st.columns(2)
+        
+        with col_t1:
+            st.write("#### 1️⃣ 최근 5주간 많이 나온 번호 (Hot)")
+            hot_5_df = pd.DataFrame(recent_5_counts.most_common(10), columns=['번호', '빈도'])
+            st.dataframe(hot_5_df, hide_index=True, use_container_width=True)
+            
+        with col_t2:
+            st.write("#### 2️⃣ 최근 5주간 한 번도 안 나온 번호 (Cold)")
+            all_45 = set(range(1, 46))
+            cold_5_nums = sorted(list(all_45 - set(recent_5_nums)))
+            st.write(f"총 {len(cold_5_nums)}개의 번호가 미출현 중입니다.")
+            st.caption(f"{cold_5_nums}")
+
+        st.divider()
+        st.subheader("📈 전체 회차 누적 빈도 Top 15")
+        all_counts = Counter(df[cols].values.flatten().tolist())
+        all_freq_df = pd.DataFrame(all_counts.most_common(15), columns=['번호', '빈도']).set_index('번호')
+        st.bar_chart(all_freq_df)
 
 else:
-    st.error("lotto_data.csv 파일을 불러올 수 없습니다. GitHub에 파일이 있는지 확인해 주세요.")
+    st.error("데이터 파일을 찾을 수 없습니다.")
