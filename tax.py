@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.3)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.4)")
 
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
 
@@ -11,13 +11,13 @@ uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "x
 
 if uploaded_file is not None:
     try:
-        # 1. 파일 읽기 (모든 값을 일단 문자열로 취급하여 에러 방지)
+        # 1. 파일 읽기 (모든 값을 문자열로 취급)
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
         else:
             df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
 
-        # 2. 진짜 제목 줄 찾기
+        # 2. 제목 줄 찾기
         header_row = 0
         for i in range(len(df_raw)):
             row_values = df_raw.iloc[i].fillna('').values
@@ -32,15 +32,22 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 3. 기둥 이름 매칭
+        # 3. 기둥(Column) 매칭 로직 강화
         c_date = next((c for c in df.columns if '작성일자' in str(c)), df.columns[0])
         
+        # [수정] 상호 칸 찾기: '대표'라는 단어가 들어간 기둥은 피하도록 설정
         if "매출" in job_type:
-            c_name = next((c for c in df.columns if '상호' in str(c) and '받는' in str(c)), None)
-            if not c_name: c_name = df.columns[12] if len(df.columns) > 12 else df.columns[-1]
+            # 매출은 '공급받는자'의 상호를 가져와야 함
+            c_name = next((c for c in df.columns if '상호' in str(c) and '받는' in str(c) and '대표' not in str(c)), None)
+            if not c_name:
+                # 못 찾을 경우 인덱스로 접근 (보통 국세청 매출 파일은 12번째 부근)
+                potential_cols = [c for c in df.columns if '대표' not in str(c)]
+                c_name = potential_cols[7] if len(potential_cols) > 7 else df.columns[12]
         else:
+            # 매입은 '공급자'의 상호를 가져와야 함
             c_name = next((c for c in df.columns if '상호' in str(c) and '받는' not in str(c) and '대표' not in str(c)), None)
-            if not c_name: c_name = df.columns[6] if len(df.columns) > 6 else df.columns[-1]
+            if not c_name:
+                c_name = df.columns[6] if len(df.columns) > 6 else df.columns[-1]
             
         c_supply = next((c for c in df.columns if '공급가액' in str(c) and '품목' not in str(c)), None)
         if not c_supply: c_supply = df.columns[15] if len(df.columns) > 15 else df.columns[-1]
@@ -48,7 +55,7 @@ if uploaded_file is not None:
         c_tax = next((c for c in df.columns if '세액' in str(c) and '품목' not in str(c)), None)
         if not c_tax: c_tax = df.columns[16] if len(df.columns) > 16 else df.columns[-1]
 
-        # 전처리
+        # 숫자 및 날짜 전처리
         df[c_supply] = pd.to_numeric(df[c_supply].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df[c_tax] = pd.to_numeric(df[c_tax].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df['합계'] = df[c_supply] + df[c_tax]
@@ -61,13 +68,11 @@ if uploaded_file is not None:
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
             
-            # [수정] 5:5 공동 배분 업체 키워드 (오타 수정: 전자인증)
             shared_keywords = ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']
             
             is_ansan_email = any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater'])
             is_ansan_police = any(k in name_val for k in ['성남수정', '성남경찰서']) or any(k in full_text for k in ['성남수정', '성남경찰서'])
             
-            # 공동비용 처리 (매입일 때만)
             if "매입" in job_type and any(k in name_val for k in shared_keywords):
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
@@ -87,7 +92,7 @@ if uploaded_file is not None:
             else:
                 incheon_list.append(row)
 
-        # 5. 결과 정리 함수
+        # 5. 결과 정리 및 출력
         def format_df(data_list):
             if not data_list: return pd.DataFrame()
             temp = pd.DataFrame(data_list).sort_values(by=['월', c_date])
@@ -118,7 +123,7 @@ if uploaded_file is not None:
         
         st.divider()
         st.success(f"✅ {job_type} 정산 완료!")
-        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_결과_통합.xlsx")
+        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_결과_최종.xlsx")
         
         c1, c2 = st.columns(2)
         with c1: st.subheader("🏢 안산 본점"); st.dataframe(ansan_final)
