@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.7)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.8)")
 
 # 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
@@ -55,7 +55,7 @@ if uploaded_file is not None:
         c_supply = next((c for c in df.columns if '공급가액' in str(c) and '품목' not in str(c)), df.columns[15])
         c_tax = next((c for c in df.columns if '세액' in str(c) and '품목' not in str(c)), df.columns[16])
 
-        # 전처리
+        # 숫자 전처리
         df[c_supply] = pd.to_numeric(df[c_supply].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df[c_tax] = pd.to_numeric(df[c_tax].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df['합계'] = df[c_supply] + df[c_tax]
@@ -63,27 +63,27 @@ if uploaded_file is not None:
 
         ansan_list, incheon_list = [], []
 
-        # 4. 분류 로직
+        # 4. 분류 로직 (가장 강력하게 보정)
         for idx, row in df.iterrows():
-            name_val = str(row[c_name]).replace(" ", "").lower()
+            # 모든 데이터를 합친 텍스트 (기둥 위치 오류 방지용)
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
+            name_val = str(row[c_name]).replace(" ", "").lower()
             
-            # 이메일 값 정밀 확인 (@가 없으면 빈칸이나 마찬가지로 취급)
+            # 이메일 판별: 공백, nan, 혹은 골뱅이가 없는 짧은 글자는 빈칸으로 간주
             raw_email = str(row[c_email]).strip().lower() if c_email and pd.notnull(row[c_email]) else ""
-            is_email_empty = (raw_email == "" or raw_email == "nan" or "@" not in raw_email)
-            
-            shared_keywords = ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']
+            is_email_empty = (raw_email == "" or raw_email == "nan" or "@" not in raw_email or len(raw_email) < 5)
             
             # [조건 1] 인천도화위탁관리부동산투자회사는 무조건 인천!
-            if '인천도화' in name_val:
+            if '인천도화' in full_text:
                 incheon_list.append(row)
             
-            # [조건 2] 남상민(외1명 포함) + 이메일이 제대로 없으면 안산!
-            elif '남상민' in name_val and is_email_empty:
+            # [조건 2] 남상민(외1명 포함) 발견 + 이메일이 실질적으로 없으면 무조건 안산!
+            # (기둥 상관없이 줄 전체에서 '남상민'을 찾습니다)
+            elif '남상민' in full_text and is_email_empty:
                 ansan_list.append(row)
             
-            # [조건 3] 공동비용 처리
-            elif "매입" in job_type and any(k in name_val for k in shared_keywords):
+            # [조건 3] 공동비용 처리 (매입 시)
+            elif "매입" in job_type and any(k in name_val for k in ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']):
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
@@ -128,14 +128,14 @@ if uploaded_file is not None:
         ansan_final = format_df(ansan_list)
         incheon_final = format_df(incheon_list)
 
-        # 6. 다운로드 및 표시
+        # 6. 다운로드
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             ansan_final.to_excel(writer, sheet_name='안산_본점', index=False)
             incheon_final.to_excel(writer, sheet_name='인천_지점', index=False)
         
         st.divider()
-        st.success(f"✅ 정산 완료!")
+        st.success(f"✅ {job_type} 정산 완료!")
         st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), "호진환경_정산_최종.xlsx")
         
         c1, c2 = st.columns(2)
