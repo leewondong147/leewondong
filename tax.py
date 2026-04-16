@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.6)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.7)")
 
 # 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
@@ -33,9 +33,9 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 3. 기둥 매칭 (상호명 추출 최적화)
+        # 3. 기둥 매칭
         c_date = next((c for c in df.columns if '작성일자' in str(c)), df.columns[0])
-        c_email = next((c for c in df.columns if '이메일' in str(c)), None) # 이메일 기둥 추가 확인
+        c_email = next((c for c in df.columns if '이메일' in str(c)), None)
         
         if "매출" in job_type:
             c_name = None
@@ -63,25 +63,26 @@ if uploaded_file is not None:
 
         ansan_list, incheon_list = [], []
 
-        # 4. 상세 분류 로직 (남상민, 인천도화 조건 추가)
+        # 4. 분류 로직
         for idx, row in df.iterrows():
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
             
-            # 이메일 값 확인 (빈칸 여부 체크)
-            email_val = str(row[c_email]).strip() if c_email and pd.notnull(row[c_email]) else ""
+            # 이메일 값 정밀 확인 (@가 없으면 빈칸이나 마찬가지로 취급)
+            raw_email = str(row[c_email]).strip().lower() if c_email and pd.notnull(row[c_email]) else ""
+            is_email_empty = (raw_email == "" or raw_email == "nan" or "@" not in raw_email)
             
             shared_keywords = ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']
             
             # [조건 1] 인천도화위탁관리부동산투자회사는 무조건 인천!
-            if '인천도화위탁관리부동산투자회사' in name_val:
+            if '인천도화' in name_val:
                 incheon_list.append(row)
             
-            # [조건 2] 남상민외1인 + 이메일 빈칸이면 안산!
-            elif '남상민' in name_val and email_val == "":
+            # [조건 2] 남상민(외1명 포함) + 이메일이 제대로 없으면 안산!
+            elif '남상민' in name_val and is_email_empty:
                 ansan_list.append(row)
             
-            # 기존 분류 로직 (공동비용 등)
+            # [조건 3] 공동비용 처리
             elif "매입" in job_type and any(k in name_val for k in shared_keywords):
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
@@ -94,8 +95,12 @@ if uploaded_file is not None:
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = ansan_v, ansan_v*0.1, ansan_v*1.1
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]-ansan_v, (row[c_supply]-ansan_v)*0.1, (row[c_supply]-ansan_v)*1.1
                 ansan_list.append(r_a); incheon_list.append(r_i)
+            
+            # [조건 4] 안산 관련 키워드 (이메일 등)
             elif any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater', '성남수정', '성남경찰서']) and ('hojinbio' not in full_text):
                 ansan_list.append(row)
+            
+            # 나머지 전체: 인천
             else:
                 incheon_list.append(row)
 
