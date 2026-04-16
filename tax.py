@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.5)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.6)")
 
 # 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
@@ -33,12 +33,12 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 3. 기둥 매칭 정밀 보정
+        # 3. 기둥 매칭 (상호명 추출 최적화)
         c_date = next((c for c in df.columns if '작성일자' in str(c)), df.columns[0])
+        c_email = next((c for c in df.columns if '이메일' in str(c)), None) # 이메일 기둥 추가 확인
         
         if "매출" in job_type:
             c_name = None
-            # 매출: 10번~14번 기둥 사이에서 상호 추출 (주소/대표 배제)
             for col in df.columns[10:15]:
                 if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
                     c_name = col
@@ -46,7 +46,6 @@ if uploaded_file is not None:
             if not c_name: c_name = df.columns[12]
         else:
             c_name = None
-            # 매입: 5번~9번 기둥 사이에서 상호 추출
             for col in df.columns[5:10]:
                 if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
                     c_name = col
@@ -56,7 +55,7 @@ if uploaded_file is not None:
         c_supply = next((c for c in df.columns if '공급가액' in str(c) and '품목' not in str(c)), df.columns[15])
         c_tax = next((c for c in df.columns if '세액' in str(c) and '품목' not in str(c)), df.columns[16])
 
-        # 숫자 및 전처리
+        # 전처리
         df[c_supply] = pd.to_numeric(df[c_supply].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df[c_tax] = pd.to_numeric(df[c_tax].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
         df['합계'] = df[c_supply] + df[c_tax]
@@ -64,17 +63,26 @@ if uploaded_file is not None:
 
         ansan_list, incheon_list = [], []
 
-        # 4. 분류 작업
+        # 4. 상세 분류 로직 (남상민, 인천도화 조건 추가)
         for idx, row in df.iterrows():
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
             
+            # 이메일 값 확인 (빈칸 여부 체크)
+            email_val = str(row[c_email]).strip() if c_email and pd.notnull(row[c_email]) else ""
+            
             shared_keywords = ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']
             
-            is_ansan_email = any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater'])
-            is_ansan_police = any(k in name_val for k in ['성남수정', '성남경찰서']) or any(k in full_text for k in ['성남수정', '성남경찰서'])
+            # [조건 1] 인천도화위탁관리부동산투자회사는 무조건 인천!
+            if '인천도화위탁관리부동산투자회사' in name_val:
+                incheon_list.append(row)
             
-            if "매입" in job_type and any(k in name_val for k in shared_keywords):
+            # [조건 2] 남상민외1인 + 이메일 빈칸이면 안산!
+            elif '남상민' in name_val and email_val == "":
+                ansan_list.append(row)
+            
+            # 기존 분류 로직 (공동비용 등)
+            elif "매입" in job_type and any(k in name_val for k in shared_keywords):
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
@@ -86,12 +94,12 @@ if uploaded_file is not None:
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = ansan_v, ansan_v*0.1, ansan_v*1.1
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]-ansan_v, (row[c_supply]-ansan_v)*0.1, (row[c_supply]-ansan_v)*1.1
                 ansan_list.append(r_a); incheon_list.append(r_i)
-            elif (is_ansan_email or is_ansan_police) and ('hojinbio' not in full_text):
+            elif any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater', '성남수정', '성남경찰서']) and ('hojinbio' not in full_text):
                 ansan_list.append(row)
             else:
                 incheon_list.append(row)
 
-        # 5. 정리 및 출력 함수
+        # 5. 결과 정리 함수
         def format_df(data_list):
             if not data_list: return pd.DataFrame()
             temp = pd.DataFrame(data_list).sort_values(by=['월', c_date])
@@ -115,7 +123,7 @@ if uploaded_file is not None:
         ansan_final = format_df(ansan_list)
         incheon_final = format_df(incheon_list)
 
-        # 6. 다운로드 및 화면 표시
+        # 6. 다운로드 및 표시
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             ansan_final.to_excel(writer, sheet_name='안산_본점', index=False)
