@@ -5,17 +5,20 @@ import io
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
 st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.5)")
 
+# 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
 
 uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
     try:
+        # 1. 파일 읽기
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
         else:
             df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
 
+        # 2. 제목 줄 찾기
         header_row = 0
         for i in range(len(df_raw)):
             row_vals = df_raw.iloc[i].fillna('').values
@@ -25,28 +28,30 @@ if uploaded_file is not None:
                 break
         
         uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, skiprows=header_row) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, skiprows=header_row)
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, skiprows=header_row)
+        else:
+            df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 1. 기둥 매칭 정밀 보정
+        # 3. 기둥 매칭 정밀 보정
         c_date = next((c for c in df.columns if '작성일자' in str(c)), df.columns[0])
         
-        # [핵심 수정] 상호명 기둥을 더 엄격하게 찾습니다.
         if "매출" in job_type:
-            # 매출: 10번~14번 기둥 사이에서 '상호'가 있고 '주소', '대표', '번호'가 없는 것을 선택
             c_name = None
+            # 매출: 10번~14번 기둥 사이에서 상호 추출 (주소/대표 배제)
             for col in df.columns[10:15]:
                 if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
                     c_name = col
                     break
-            if not c_name: c_name = df.columns[12] # 표준 위치 강제 지정
+            if not c_name: c_name = df.columns[12]
         else:
-            # 매입: 5번~9번 기둥 사이에서 동일 조건 적용
             c_name = None
+            # 매입: 5번~9번 기둥 사이에서 상호 추출
             for col in df.columns[5:10]:
                 if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
                     c_name = col
                     break
-            if not c_name: c_name = df.columns[6] # 표준 위치 강제 지정
+            if not c_name: c_name = df.columns[6]
             
         c_supply = next((c for c in df.columns if '공급가액' in str(c) and '품목' not in str(c)), df.columns[15])
         c_tax = next((c for c in df.columns if '세액' in str(c) and '품목' not in str(c)), df.columns[16])
@@ -59,7 +64,7 @@ if uploaded_file is not None:
 
         ansan_list, incheon_list = [], []
 
-        # 2. 분류 작업
+        # 4. 분류 작업
         for idx, row in df.iterrows():
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
@@ -86,7 +91,7 @@ if uploaded_file is not None:
             else:
                 incheon_list.append(row)
 
-        # 3. 정리 및 엑셀 출력
+        # 5. 정리 및 출력 함수
         def format_df(data_list):
             if not data_list: return pd.DataFrame()
             temp = pd.DataFrame(data_list).sort_values(by=['월', c_date])
@@ -100,11 +105,4 @@ if uploaded_file is not None:
             final_rows = []
             for month, group in display_df.groupby(display_df['작성일자'].apply(lambda x: pd.to_datetime(x).month if pd.notnull(pd.to_datetime(x, errors='coerce')) else 0)):
                 final_rows.append(group)
-                sub = pd.DataFrame([{'작성일자': f"{int(month)}월 소계", '상호': "", '공급가액': group['공급가액'].sum(), '세액': group['세액'].sum(), '합계': group['합계'].sum()}])
-                final_rows.append(sub)
-            
-            grand = pd.DataFrame([{'작성일자': "총 계", '상호': "", '공급가액': display_df['공급가액'].sum(), '세액': display_df['세액'].sum(), '합계': display_df['합계'].sum()}])
-            final_rows.append(grand)
-            return pd.concat(final_rows, ignore_index=True)
-
-        ans
+                sub = pd
