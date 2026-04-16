@@ -105,4 +105,29 @@ if uploaded_file is not None:
             final_rows = []
             for month, group in display_df.groupby(display_df['작성일자'].apply(lambda x: pd.to_datetime(x).month if pd.notnull(pd.to_datetime(x, errors='coerce')) else 0)):
                 final_rows.append(group)
-                sub = pd
+                sub = pd.DataFrame([{'작성일자': f"{int(month)}월 소계", '상호': "", '공급가액': group['공급가액'].sum(), '세액': group['세액'].sum(), '합계': group['합계'].sum()}])
+                final_rows.append(sub)
+            
+            grand = pd.DataFrame([{'작성일자': "총 계", '상호': "", '공급가액': display_df['공급가액'].sum(), '세액': display_df['세액'].sum(), '합계': display_df['합계'].sum()}])
+            final_rows.append(grand)
+            return pd.concat(final_rows, ignore_index=True)
+
+        ansan_final = format_df(ansan_list)
+        incheon_final = format_df(incheon_list)
+
+        # 6. 다운로드 및 화면 표시
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            ansan_final.to_excel(writer, sheet_name='안산_본점', index=False)
+            incheon_final.to_excel(writer, sheet_name='인천_지점', index=False)
+        
+        st.divider()
+        st.success(f"✅ 정산 완료!")
+        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), "호진환경_정산_최종.xlsx")
+        
+        c1, c2 = st.columns(2)
+        with c1: st.subheader("🏢 안산 본점"); st.dataframe(ansan_final)
+        with c2: st.subheader("🏭 인천 지점"); st.dataframe(incheon_final)
+
+    except Exception as e:
+        st.error(f"🚨 오류 발생: {e}")
