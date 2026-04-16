@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.2)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.3)")
 
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
 
@@ -56,13 +56,13 @@ if uploaded_file is not None:
 
         ansan_list, incheon_list = [], []
 
-        # 4. 분류 작업 (공동비용 키워드 보강)
+        # 4. 분류 작업
         for idx, row in df.iterrows():
             name_val = str(row[c_name]).replace(" ", "").lower()
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
             
-            # [수정] 5:5 공동 배분 업체 리스트
-            shared_keywords = ['세무', '비즈', 'tax', '한국전자인주', 'nice평가', '나이스평가']
+            # [수정] 5:5 공동 배분 업체 키워드 (오타 수정: 전자인증)
+            shared_keywords = ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']
             
             is_ansan_email = any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater'])
             is_ansan_police = any(k in name_val for k in ['성남수정', '성남경찰서']) or any(k in full_text for k in ['성남수정', '성남경찰서'])
@@ -76,7 +76,7 @@ if uploaded_file is not None:
                 
             elif "매입" in job_type and any(k in name_val for k in ['kt', '케이티', '전화']):
                 st.info(f"📞 공동요금 발견: {row[c_name]} (총 {row[c_supply]:,.0f}원)")
-                ansan_v = st.number_input(f"ㄴ {row[c_name]} 안산분 공급가액?", 0.0, float(row[c_supply]), float(row[c_supply]/2), key=f"kt_{idx}")
+                ansan_v = st.number_input(f"ㄴ {row[c_name]} 중 '안산분 공급가액'?", 0.0, float(row[c_supply]), float(row[c_supply]/2), key=f"kt_{idx}")
                 r_a, r_i = row.copy(), row.copy()
                 r_a[c_supply], r_a[c_tax], r_a['합계'] = ansan_v, ansan_v*0.1, ansan_v*1.1
                 r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]-ansan_v, (row[c_supply]-ansan_v)*0.1, (row[c_supply]-ansan_v)*1.1
