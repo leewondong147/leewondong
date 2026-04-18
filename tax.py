@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.8)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 8.9)")
 
 # 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
@@ -12,19 +12,22 @@ uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "x
 
 if uploaded_file is not None:
     try:
-        # 1. 파일 읽기
+        # 1. 파일 읽기 (글자 형식으로 안전하게)
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
         else:
             df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
 
-        # 2. 제목 줄 찾기
+        # 2. 제목 줄(Header) 찾기 로직 강화
         header_row = 0
-        for i in range(len(df_raw)):
+        found_header = False
+        for i in range(min(len(df_raw), 20)): # 상위 20줄 이내에서 탐색
             row_vals = df_raw.iloc[i].fillna('').values
             row_str = "".join(map(str, row_vals))
-            if '작성일자' in row_str and '공급가액' in row_str:
+            # 카드 내역은 '작성일자' 대신 '이용일자' 혹은 '거래일자'일 수 있음
+            if any(k in row_str for k in ['일자', '공급가액', '승인번호']):
                 header_row = i
+                found_header = True
                 break
         
         uploaded_file.seek(0)
@@ -33,74 +36,49 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 3. 기둥 매칭
-        c_date = next((c for c in df.columns if '작성일자' in str(c)), df.columns[0])
-        c_email = next((c for c in df.columns if '이메일' in str(c)), None)
-        
-        if "매출" in job_type:
-            c_name = None
-            for col in df.columns[10:15]:
-                if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
-                    c_name = col
-                    break
-            if not c_name: c_name = df.columns[12]
-        else:
-            c_name = None
-            for col in df.columns[5:10]:
-                if '상호' in str(col) and not any(k in str(col) for k in ['주소', '대표', '번호', '등록']):
-                    c_name = col
-                    break
-            if not c_name: c_name = df.columns[6]
+        # 3. 🔍 기둥 매칭 (카드 양식에 맞춰 유연하게 선택)
+        # 일자 기둥
+        c_date = next((c for c in df.columns if any(k in str(c) for k in ['일자', '일시'])), df.columns[0])
+        # 상호명 기둥 (가맹점명 등)
+        c_name = next((c for c in df.columns if any(k in str(c) for k in ['상호', '가맹점', '거래처'])), None)
+        if not c_name:
+            # 카드 양식에서 상호명이 보통 앞에 위치하므로 안전하게 선택
+            c_name = df.columns[3] if len(df.columns) > 3 else df.columns[1]
             
-        c_supply = next((c for c in df.columns if '공급가액' in str(c) and '품목' not in str(c)), df.columns[15])
-        c_tax = next((c for c in df.columns if '세액' in str(c) and '품목' not in str(c)), df.columns[16])
+        # 금액 기둥 (공급가액, 세액)
+        c_supply = next((c for c in df.columns if '공급가액' in str(c)), None)
+        if not c_supply: # 카드 내역에 공급가액 기둥이 따로 없을 경우 '이용금액'이나 '합계'를 찾음
+            c_supply = next((c for c in df.columns if any(k in str(c) for k in ['금액', '합계', '승인금액'])), df.columns[-1])
+            
+        c_tax = next((c for c in df.columns if '세액' in str(c)), None)
+        # 세액 기둥이 없으면 0으로 처리하도록 로직 구성
 
-        # 숫자 전처리
+        # 데이터 전처리 및 숫자 변환
         df[c_supply] = pd.to_numeric(df[c_supply].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
-        df[c_tax] = pd.to_numeric(df[c_tax].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
+        if c_tax:
+            df[c_tax] = pd.to_numeric(df[c_tax].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
+        else:
+            # 세액 기둥이 없는 경우 공급가액에서 10% 역산 (필요시)
+            df['임시세액'] = df[c_supply] * 0.1 / 1.1 # 부가세 포함 금액일 경우 예시
+            c_tax = '임시세액'
+
         df['합계'] = df[c_supply] + df[c_tax]
         df['월'] = pd.to_datetime(df[c_date], errors='coerce').dt.month.fillna(0).astype(int)
 
         ansan_list, incheon_list = [], []
 
-        # 4. 분류 로직 (가장 강력하게 보정)
+        # 4. 분류 로직
         for idx, row in df.iterrows():
-            # 모든 데이터를 합친 텍스트 (기둥 위치 오류 방지용)
             full_text = "".join(map(str, row.fillna('').values)).replace(" ", "").lower()
             name_val = str(row[c_name]).replace(" ", "").lower()
             
-            # 이메일 판별: 공백, nan, 혹은 골뱅이가 없는 짧은 글자는 빈칸으로 간주
-            raw_email = str(row[c_email]).strip().lower() if c_email and pd.notnull(row[c_email]) else ""
-            is_email_empty = (raw_email == "" or raw_email == "nan" or "@" not in raw_email or len(raw_email) < 5)
-            
-            # [조건 1] 인천도화위탁관리부동산투자회사는 무조건 인천!
-            if '인천도화' in full_text:
-                incheon_list.append(row)
-            
-            # [조건 2] 남상민(외1명 포함) 발견 + 이메일이 실질적으로 없으면 무조건 안산!
-            # (기둥 상관없이 줄 전체에서 '남상민'을 찾습니다)
-            elif '남상민' in full_text and is_email_empty:
+            # [조건 1] 남상민 건 (줄 전체 검색)
+            if '남상민' in full_text:
                 ansan_list.append(row)
-            
-            # [조건 3] 공동비용 처리 (매입 시)
-            elif "매입" in job_type and any(k in name_val for k in ['세무', '비즈', 'tax', '한국전자인증', '전자인증', 'nice평가', '나이스평가']):
-                r_a, r_i = row.copy(), row.copy()
-                r_a[c_supply], r_a[c_tax], r_a['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
-                r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]/2, row[c_tax]/2, row['합계']/2
-                ansan_list.append(r_a); incheon_list.append(r_i)
-            elif "매입" in job_type and any(k in name_val for k in ['kt', '케이티', '전화']):
-                st.info(f"📞 공동요금: {row[c_name]} (총 {row[c_supply]:,.0f}원)")
-                ansan_v = st.number_input(f"ㄴ {row[c_name]} 안산분 공급가액?", 0.0, float(row[c_supply]), float(row[c_supply]/2), key=f"kt_{idx}")
-                r_a, r_i = row.copy(), row.copy()
-                r_a[c_supply], r_a[c_tax], r_a['합계'] = ansan_v, ansan_v*0.1, ansan_v*1.1
-                r_i[c_supply], r_i[c_tax], r_i['합계'] = row[c_supply]-ansan_v, (row[c_supply]-ansan_v)*0.1, (row[c_supply]-ansan_v)*1.1
-                ansan_list.append(r_a); incheon_list.append(r_i)
-            
-            # [조건 4] 안산 관련 키워드 (이메일 등)
-            elif any(k in full_text for k in ['6114hojin', 'tpy1004', 'tpywater', '성남수정', '성남경찰서']) and ('hojinbio' not in full_text):
+            # [조건 2] 성남/수정/경찰서 (안산)
+            elif any(k in full_text for k in ['성남수정', '성남경찰서', '6114hojin', 'tpy1004']):
                 ansan_list.append(row)
-            
-            # 나머지 전체: 인천
+            # [조건 3] 카드 내역은 보통 공동비용 분배보다는 명확한 사용처 위주이므로 그대로 분류
             else:
                 incheon_list.append(row)
 
@@ -128,7 +106,7 @@ if uploaded_file is not None:
         ansan_final = format_df(ansan_list)
         incheon_final = format_df(incheon_list)
 
-        # 6. 다운로드
+        # 6. 다운로드 및 표시
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             ansan_final.to_excel(writer, sheet_name='안산_본점', index=False)
@@ -136,11 +114,11 @@ if uploaded_file is not None:
         
         st.divider()
         st.success(f"✅ {job_type} 정산 완료!")
-        st.download_button("📥 최종 정산내역 엑셀 다운로드", output.getvalue(), "호진환경_정산_최종.xlsx")
+        st.download_button("📥 카드정산 엑셀 다운로드", output.getvalue(), "호진환경_카드정산_완료.xlsx")
         
         c1, c2 = st.columns(2)
-        with c1: st.subheader("🏢 안산 본점"); st.dataframe(ansan_final)
-        with c2: st.subheader("🏭 인천 지점"); st.dataframe(incheon_final)
+        with c1: st.subheader("🏢 안산 본점 (카드)"); st.dataframe(ansan_final)
+        with c2: st.subheader("🏭 인천 지점 (카드)"); st.dataframe(incheon_final)
 
     except Exception as e:
-        st.error(f"🚨 오류 발생: {e}")
+        st.error(f"🚨 오류 발생: {e} - 파일 형식이 평소와 다른지 확인해주세요.")
