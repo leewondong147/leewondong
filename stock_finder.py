@@ -45,21 +45,15 @@ def get_naver_investor_data(code):
             
         html = res.text
         
-        # 💡 [V6.0 핵심 해결책] 디자인 태그 무시하고 테이블 데이터(<td>) 뼈대만 정밀 추출
         rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
         
         results = []
         for row in rows:
-            # 한 줄(tr) 안에서 각 칸(td)을 리스트로 뽑아냄
             tds = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-            
-            # 네이버 수급표는 날짜부터 보유율까지 총 9칸으로 이루어져 있음 (최소 7칸 이상이면 데이터 줄로 간주)
             if len(tds) >= 7:
-                # 태그(<...>)와 불필요한 공백/특수문자 제거
                 clean_tds = [re.sub(r'<[^>]+>', '', td).replace('&nbsp;', '').strip() for td in tds]
                 date_str = clean_tds[0]
                 
-                # 첫 번째 칸이 'YYYY.MM.DD' 형태의 날짜인지 확인
                 if re.match(r'^\d{4}\.\d{2}\.\d{2}$', date_str):
                     inst_str = clean_tds[5].replace(',', '').replace('+', '')
                     forgn_str = clean_tds[6].replace(',', '').replace('+', '')
@@ -94,7 +88,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V6.0 (수급 데이터 완전 정복)")
+st.title("🦅 EagleEye V6.0 (수급 & 20일선 이격도 완전 정복)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -180,11 +174,14 @@ with tab1:
 with tab2:
     st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
     
-    col_opt1, col_opt2 = st.columns(2)
+    # 💡 [업데이트] 옵션 컬럼을 3개로 늘리고 이격도 조절 슬라이더 추가
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
     with col_opt1:
         vol_multiplier = st.slider("📊 당일 거래량 조건 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
     with col_opt2:
-        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수가 있어야 함", value=False)
+        ma20_limit = st.slider("🎯 20일선 이격도 (몇 % 이내?)", min_value=1.0, max_value=20.0, value=8.0, step=0.5)
+    with col_opt3:
+        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수 필요", value=False)
 
     if st.button("🌟 커스텀 스캔 시작"):
         results = []
@@ -204,6 +201,9 @@ with tab2:
                 
                 curr_price = df['Close'].iloc[-1]
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                
+                # 💡 [업데이트] 현재가와 20일 이평선의 퍼센트 차이(절댓값) 계산
+                diff_percent = abs(curr_price - ma20) / ma20 * 100
                 
                 curr_vol = df['Volume'].iloc[-1]
                 avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2]
@@ -227,8 +227,11 @@ with tab2:
                     cond3 = curr_macd > curr_signal          
                     cond4 = avg_vol_20d >= 100000            
                     cond5 = curr_vol >= (avg_vol_20d * vol_multiplier)  
+                    # 💡 [업데이트] 계산된 이격도가 슬라이더에서 설정한 값(예: 8%) 이하인지 확인
+                    cond6 = diff_percent <= ma20_limit
                     
-                    if cond1 and cond2 and cond3 and cond4 and cond5:
+                    # 6가지 조건이 모두 만족될 때만 통과
+                    if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
                         if require_sugeub:
                             inv_df, msg = get_naver_investor_data(row['Code'])
                             f_sum, i_sum = 0, 0
@@ -242,13 +245,17 @@ with tab2:
                             if (f_sum > 0 or i_sum > 0):
                                 results.append({
                                     '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
-                                    '현재가':int(curr_price), '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
+                                    '현재가':int(curr_price), 
+                                    '20일선_이격도': f"{round(diff_percent, 2)}%", # 💡 이격도 결과 추가
+                                    '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
                                     '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
                                 })
                         else:
                             results.append({
                                 '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
-                                '현재가':int(curr_price), '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
+                                '현재가':int(curr_price), 
+                                '20일선_이격도': f"{round(diff_percent, 2)}%", # 💡 이격도 결과 추가
+                                '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
                                 '세력수급': "미확인 (OFF)"
                             })
             except: continue
