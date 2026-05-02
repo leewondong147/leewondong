@@ -88,7 +88,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V6.0 (수급 & 20일선 이격도 완전 정복)")
+st.title("🦅 EagleEye V6.0 (수급 & 이격도 & 거래대금 완전 정복)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -174,14 +174,19 @@ with tab1:
 with tab2:
     st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
     
-    # 💡 [업데이트] 옵션 컬럼을 3개로 늘리고 이격도 조절 슬라이더 추가
-    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    # 💡 [업데이트] 옵션 컬럼을 4개로 늘리고 거래대금 조절 슬라이더 추가
+    col_opt1, col_opt2, col_opt3, col_opt4 = st.columns(4)
     with col_opt1:
-        vol_multiplier = st.slider("📊 당일 거래량 조건 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
+        vol_multiplier = st.slider("📊 거래량 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
     with col_opt2:
         ma20_limit = st.slider("🎯 20일선 이격도 (몇 % 이내?)", min_value=1.0, max_value=20.0, value=8.0, step=0.5)
     with col_opt3:
-        require_sugeub = st.checkbox("🔥 반드시 외인/기관 매수 필요", value=False)
+        min_trade_val = st.slider("💸 당일 거래대금 (억원 이상)", min_value=10, max_value=2000, value=100, step=50)
+    with col_opt4:
+        # 체크박스 정렬을 위해 약간의 여백 추가
+        st.write("")
+        st.write("")
+        require_sugeub = st.checkbox("🔥 외인/기관 매수 필수", value=False)
 
     if st.button("🌟 커스텀 스캔 시작"):
         results = []
@@ -200,12 +205,14 @@ with tab2:
                 if df.empty or len(df) < 250: continue 
                 
                 curr_price = df['Close'].iloc[-1]
-                ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                curr_vol = df['Volume'].iloc[-1]
                 
-                # 💡 [업데이트] 현재가와 20일 이평선의 퍼센트 차이(절댓값) 계산
+                # 💡 [업데이트] 거래대금을 억 원 단위로 계산 (현재가 x 거래량 / 1억)
+                curr_trade_val_eok = (curr_price * curr_vol) / 100000000
+                
+                ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 diff_percent = abs(curr_price - ma20) / ma20 * 100
                 
-                curr_vol = df['Volume'].iloc[-1]
                 avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2]
                 
                 df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
@@ -227,11 +234,12 @@ with tab2:
                     cond3 = curr_macd > curr_signal          
                     cond4 = avg_vol_20d >= 100000            
                     cond5 = curr_vol >= (avg_vol_20d * vol_multiplier)  
-                    # 💡 [업데이트] 계산된 이격도가 슬라이더에서 설정한 값(예: 8%) 이하인지 확인
                     cond6 = diff_percent <= ma20_limit
+                    # 💡 [업데이트] 당일 거래대금이 설정한 금액(억원) 이상인지 확인
+                    cond7 = curr_trade_val_eok >= min_trade_val
                     
-                    # 6가지 조건이 모두 만족될 때만 통과
-                    if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
+                    # 7가지 조건이 모두 만족될 때만 통과
+                    if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
                         if require_sugeub:
                             inv_df, msg = get_naver_investor_data(row['Code'])
                             f_sum, i_sum = 0, 0
@@ -246,7 +254,8 @@ with tab2:
                                 results.append({
                                     '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
                                     '현재가':int(curr_price), 
-                                    '20일선_이격도': f"{round(diff_percent, 2)}%", # 💡 이격도 결과 추가
+                                    '거래대금': f"{int(curr_trade_val_eok):,}억", # 💡 거래대금 결과 추가
+                                    '20일선_이격도': f"{round(diff_percent, 2)}%", 
                                     '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
                                     '세력수급': f"외:{int(f_sum)} / 기:{int(i_sum)}"
                                 })
@@ -254,7 +263,8 @@ with tab2:
                             results.append({
                                 '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
                                 '현재가':int(curr_price), 
-                                '20일선_이격도': f"{round(diff_percent, 2)}%", # 💡 이격도 결과 추가
+                                '거래대금': f"{int(curr_trade_val_eok):,}억", # 💡 거래대금 결과 추가
+                                '20일선_이격도': f"{round(diff_percent, 2)}%",
                                 '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
                                 '세력수급': "미확인 (OFF)"
                             })
