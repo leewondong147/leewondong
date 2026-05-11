@@ -8,7 +8,7 @@ import re
 import io
 
 # ==========================================
-# 앱 아이콘 및 탭 제목 설정 (가장 위에 있어야 함)
+# 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(
     page_title="이글아이 V6.0 (수급 완전 정복)", 
@@ -263,14 +263,10 @@ with tab2:
                             if inv_df.iloc[0]['외국인'] < 0 and inv_df.iloc[0]['기관합계'] < 0:
                                 continue 
                                 
-                        # 💡 [업데이트 완료]: 장중 불확실한 1일차 제외, 3일치 확정 데이터 합산
+                        # 💡 [정확한 3일 합산 로직]: 오늘 포함 최근 3거래일(맨 위 3줄) 합산
                         if not inv_df.empty:
-                            if len(inv_df) >= 4:
-                                f_sum = inv_df.iloc[1:4]['외국인'].sum()
-                                i_sum = inv_df.iloc[1:4]['기관합계'].sum()
-                            else:
-                                f_sum = inv_df['외국인'].sum()
-                                i_sum = inv_df['기관합계'].sum()
+                            f_sum = inv_df.head(3)['외국인'].sum()
+                            i_sum = inv_df.head(3)['기관합계'].sum()
                         else:
                             f_sum, i_sum = 0, 0
                             naver_fail_count += 1
@@ -280,7 +276,7 @@ with tab2:
                         if require_sugeub and f_sum <= 0 and i_sum <= 0:
                             continue
                             
-                        # 단위 '주' 추가 및 텍스트 변경
+                        # 💡 단위 '주' 명시적 추가
                         sugeub_text = f"외:{int(f_sum):,}주 / 기:{int(i_sum):,}주" if not inv_df.empty else "미확인"
                         
                         results.append({
