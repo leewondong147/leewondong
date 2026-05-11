@@ -7,7 +7,14 @@ import time
 import re
 import io
 
-st.set_page_config(page_title="EagleEye V6.0 (수급 완전 정복)", layout="wide")
+# ==========================================
+# 앱 아이콘 및 탭 제목 설정 (가장 위에 있어야 함)
+# ==========================================
+st.set_page_config(
+    page_title="이글아이 V6.0 (수급 완전 정복)", 
+    page_icon="🦅", 
+    layout="wide"
+)
 
 @st.cache_data
 def load_stock_list():
@@ -87,7 +94,7 @@ def count_consecutive(series, is_buy=True):
 
 krx_list = load_stock_list()
 
-st.title("🦅 EagleEye V6.0 (수급/이격도/거래대금 완전체)")
+st.title("🦅 이글아이 V6.0 (수급/이격도/거래대금 완전체)")
 
 tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
 
@@ -127,7 +134,7 @@ with tab1:
 
                 st.subheader(f"📊 종목코드 [{final_code}] 분석 리포트")
                 
-                # 💡 [양매도 경고 로직 복구]
+                # 양매도 경고 로직
                 if not inv_df.empty:
                     f_today = inv_df.iloc[0]['외국인']
                     i_today = inv_df.iloc[0]['기관합계']
@@ -186,7 +193,6 @@ with tab1:
 with tab2:
     st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
     
-    # 💡 [모든 조건 옵션들 복구]
     col_opt1, col_opt2, col_opt3 = st.columns(3)
     with col_opt1:
         vol_multiplier = st.slider("📊 거래량 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
@@ -219,10 +225,10 @@ with tab2:
                 
                 curr_price = df['Close'].iloc[-1]
                 curr_vol = df['Volume'].iloc[-1]
-                curr_trade_val_eok = (curr_price * curr_vol) / 100000000 # 거래대금 계산
+                curr_trade_val_eok = (curr_price * curr_vol) / 100000000 
                 
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                diff_percent = abs(curr_price - ma20) / ma20 * 100 # 이격도 계산
+                diff_percent = abs(curr_price - ma20) / ma20 * 100 
                 
                 avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2]
                 
@@ -240,7 +246,7 @@ with tab2:
                 if not m_df.empty:
                     curr_m_ma10 = m_df['MA10'].iloc[-1]
                     
-                    # 💡 [기술적 조건 7가지 확인]
+                    # 7가지 기술적 분석 조건
                     cond1 = curr_price >= curr_m_ma10        
                     cond2 = curr_price >= ma20               
                     cond3 = curr_macd > curr_signal          
@@ -252,25 +258,30 @@ with tab2:
                     if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
                         inv_df, msg = get_naver_investor_data(row['Code'])
                         
-                        # 💡 [양매도 제외 로직 확인]
+                        # 양매도 제외 로직
                         if exclude_double_sell and not inv_df.empty:
                             if inv_df.iloc[0]['외국인'] < 0 and inv_df.iloc[0]['기관합계'] < 0:
-                                continue # 양매도면 결과에서 즉시 제외
+                                continue 
                                 
-                        f_sum, i_sum = 0, 0
+                        # 💡 [업데이트 완료]: 장중 불확실한 1일차 제외, 3일치 확정 데이터 합산
                         if not inv_df.empty:
-                            f_sum = inv_df.head(3)['외국인'].sum()
-                            i_sum = inv_df.head(3)['기관합계'].sum()
+                            if len(inv_df) >= 4:
+                                f_sum = inv_df.iloc[1:4]['외국인'].sum()
+                                i_sum = inv_df.iloc[1:4]['기관합계'].sum()
+                            else:
+                                f_sum = inv_df['외국인'].sum()
+                                i_sum = inv_df['기관합계'].sum()
                         else:
+                            f_sum, i_sum = 0, 0
                             naver_fail_count += 1
                             last_error_msg = msg
                             
-                        # 💡 [수급 필수 조건 확인]
+                        # 수급 필수 조건 확인
                         if require_sugeub and f_sum <= 0 and i_sum <= 0:
                             continue
                             
-                        # 모든 산을 넘은 종목만 리스트에 추가
-                        sugeub_text = f"외:{int(f_sum):,} / 기:{int(i_sum):,}" if not inv_df.empty else "미확인"
+                        # 단위 '주' 추가 및 텍스트 변경
+                        sugeub_text = f"외:{int(f_sum):,}주 / 기:{int(i_sum):,}주" if not inv_df.empty else "미확인"
                         
                         results.append({
                             '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
@@ -278,7 +289,7 @@ with tab2:
                             '거래대금': f"{int(curr_trade_val_eok):,}억",
                             '20일선_이격도': f"{round(diff_percent, 2)}%", 
                             '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
-                            '세력수급(3일)': sugeub_text
+                            '확정수급(3일)': sugeub_text
                         })
             except: continue
             
