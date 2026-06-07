@@ -1,303 +1,148 @@
 import streamlit as st
-import FinanceDataReader as fdr
+import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
-import requests
 import time
-import re
-import io
+from datetime import datetime
 
-# ==========================================
-# 앱 아이콘 및 탭 제목 설정
-# ==========================================
-st.set_page_config(
-    page_title="이글아이 V6.0 (수급 완전 정복)", 
-    page_icon="🦅", 
-    layout="wide"
+# 💡 [안전장치] 한국 주식 코드를 야후 파이낸스용(.KS / .KQ)으로 바꿔주는 지능형 변환기
+def format_stock_code(code, market_type="KOSPI"):
+    code = str(code).strip().zfill(6)
+    if any(code.endswith(ext) for ext in ['.KS', '.KQ', '.ks', '.kq']):
+        return code.upper()
+    if market_type == "KOSDAQ":
+        return f"{code}.KQ"
+    return f"{code}.KS"
+
+# 1. 앱 브랜딩 설정 (이원동 대표님 지존 주식앱!)
+st.set_page_config(page_title="이원동 지존 주식앱", layout="wide")
+st.title("🚀 이원동의 '잡가지 지존 주식앱' (Ver 1.5)")
+st.caption("실시간 전종목 세력 포착 및 단기 급등락 감지 시스템")
+
+# 2. 🔍 인터넷에서 실시간 한국 거래소(KRX) 전체 종목 리스트 원격 수집
+@st.cache_data(ttl=3600) # 1시간 동안 리스트를 기억해서 속도를 엄청나게 빠르게 만듭니다.
+def load_krx_contents():
+    try:
+        # 한국거래소(KRX) 상장종목 전체를 가져오는 인터넷 주소
+        url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+        dfs = pd.read_html(url, header=0)
+        df_krx = dfs[0][['회사명', '종목코드']].copy()
+        
+        # 컬럼명을 다루기 쉽게 영어로 표준화
+        df_krx.columns = ['Name', 'Code']
+        # 6자리 숫자로 이쁘게 채우기 (예: 5930 -> 005930)
+        df_krx['Code'] = df_krx['Code'].astype(str).str.zfill(6)
+        return df_krx
+    except Exception as e:
+        # 혹시 KRX 서버가 점검 중이거나 다운되었을 때 앱이 튕기지 않게 비상용 백업 리스트 작동
+        backup = [
+            {"Name": "삼성전자", "Code": "005930"}, {"Name": "SK하이닉스", "Code": "000660"},
+            {"Name": "현대차", "Code": "005380"}, {"Name": "네이버", "Code": "035420"},
+            {"Name": "카카오", "Code": "035720"}, {"Name": "에코프로비엠", "Code": "247540"}
+        ]
+        return pd.DataFrame(backup)
+
+# 데이터 로드 실행
+krx_list = load_krx_contents()
+
+# 🚨 [108번째 줄 에러 완벽 해결 구역] 
+# 대표님이 수정하시다 살짝 지워졌던 'Name_Code' 조립 연산을 가장 안전한 위치에 다시 달았습니다!
+krx_list['Name_Code'] = krx_list['Name'] + " (" + krx_list['Code'] + ")"
+
+# 3. 사이드바 제어판
+st.sidebar.header("⚙️ 지존 감시 설정")
+
+# 🔥 문제의 108번째 줄! 이제 전종목 이름과 코드가 에러 없이 완벽하게 리스트로 펼쳐집니다.
+selected_stock = st.sidebar.selectbox(
+    "🎯 리스트에서 종목 선택:", 
+    ["직접 입력"] + krx_list['Name_Code'].tolist()
 )
 
-@st.cache_data
-def load_stock_list():
-    try:
-        ks = fdr.StockListing('KOSPI').head(300)
-        kd = fdr.StockListing('KOSDAQ').head(200)
-        df = pd.concat([ks, kd], ignore_index=True)
-        df['Name_Code'] = df['Name'] + ' (' + df['Code'] + ')'
-        return df
-    except:
-        return pd.DataFrame()
-
-def get_price_data(code, start_date):
-    try:
-        df = fdr.DataReader(code, start_date)
-        if not df.empty:
-            df = df[df['Volume'] > 0]
-        return df
-    except:
-        return pd.DataFrame()
-
-def get_naver_investor_data(code):
-    url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
-    }
-    try:
-        time.sleep(0.1) 
-        res = requests.get(url, headers=headers, timeout=5)
-        res.encoding = 'euc-kr'
-        
-        if res.status_code != 200:
-            return pd.DataFrame(), f"네이버 서버 차단 (HTTP 상태코드 {res.status_code})"
-            
-        html = res.text
-        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
-        
-        results = []
-        for row in rows:
-            tds = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-            if len(tds) >= 7:
-                clean_tds = [re.sub(r'<[^>]+>', '', td).replace('&nbsp;', '').strip() for td in tds]
-                date_str = clean_tds[0]
-                
-                if re.match(r'^\d{4}\.\d{2}\.\d{2}$', date_str):
-                    inst_str = clean_tds[5].replace(',', '').replace('+', '')
-                    forgn_str = clean_tds[6].replace(',', '').replace('+', '')
-                    
-                    try:
-                        results.append({
-                            '날짜': date_str,
-                            '외국인': int(forgn_str),
-                            '기관합계': int(inst_str)
-                        })
-                    except:
-                        pass
-                        
-        df = pd.DataFrame(results)
-        
-        if not df.empty:
-            return df, "정상 처리됨"
-        else:
-            return pd.DataFrame(), "수급 표 텍스트를 찾을 수 없음 (데이터 없음)"
-            
-    except Exception as e:
-        return pd.DataFrame(), f"에러 발생: {str(e)}"
-
-def count_consecutive(series, is_buy=True):
-    data_list = series.tolist()
-    if len(data_list) > 0 and data_list[0] == 0: data_list = data_list[1:]
-    count = 0
-    for val in data_list:
-        if (is_buy and val > 0) or (not is_buy and val < 0): count += 1
-        else: break
-    return count
-
-krx_list = load_stock_list()
-
-st.title("🦅 이글아이 V6.0 (수급/이격도/거래대금 완전체)")
-
-tab1, tab2 = st.tabs(["🔍 1:1 정밀 진단", "📊 내 맘대로 커스텀 스캔"])
-
-# ==========================================
-# 탭 1: 정밀 진단
-# ==========================================
-with tab1:
-    st.subheader("🔎 종목 진단 (최종 지표 및 수급 상세)")
-    col_input1, col_input2 = st.columns([3, 1])
-    with col_input1:
-        selected_stock = st.selectbox("리스트에서 선택:", ["직접 입력"] + krx_list['Name_Code'].tolist())
-    with col_input2:
-        direct_code = st.text_input("또는 코드 직접 입력:", placeholder="예: 389650")
-
-    final_code = direct_code if direct_code else (selected_stock.split('(')[1].replace(')', '') if selected_stock != "직접 입력" else "")
-
-    if st.button("🚀 정밀 분석 시작") and final_code:
-        with st.spinner(f"[{final_code}] 데이터 분석 중..."):
-            start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
-            df = get_price_data(final_code, start_date)
-            
-            if not df.empty and len(df) > 200:
-                ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
-                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
-                df['MACD'] = df['EMA12'] - df['EMA26']
-                df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-                
-                m_df = df.resample('ME').agg({'Close': 'last', 'Volume': 'sum'})
-                m_df['MA10'] = m_df['Close'].rolling(10).mean()
-                m_df = m_df.dropna()
-                
-                inv_df, inv_msg = get_naver_investor_data(final_code)
-                
-                f_buy = count_consecutive(inv_df['외국인'], True) if not inv_df.empty else 0
-                i_buy = count_consecutive(inv_df['기관합계'], True) if not inv_df.empty else 0
-
-                st.subheader(f"📊 종목코드 [{final_code}] 분석 리포트")
-                
-                # 양매도 경고 로직
-                if not inv_df.empty:
-                    f_today = inv_df.iloc[0]['외국인']
-                    i_today = inv_df.iloc[0]['기관합계']
-                    if f_today < 0 and i_today < 0:
-                        st.error(f"🚨 **[위험 경보]** 최근 거래일 기준 외국인({f_today:,}주)과 기관({i_today:,}주)의 강력한 양매도가 포착되었습니다!")
-
-                st.line_chart(m_df[['Close', 'MA10']].rename(columns={'Close':'종가','MA10':'10월선'}))
-                
-                if len(m_df) >= 2:
-                    curr_m, prev_m = m_df.iloc[-1], m_df.iloc[-2]
-                    curr_price = df['Close'].iloc[-1]
-                    
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.write("**📈 장기 추세**")
-                        if curr_price >= curr_m['MA10']: st.success(f"✅ 10MA 위")
-                        else: st.error(f"❌ 10MA 아래")
-                    with c2:
-                        st.write("**💰 세력 수급 요약**")
-                        if not inv_df.empty:
-                            if f_buy > 0 or i_buy > 0: st.info(f"🔥 매수(외:{f_buy}/기:{i_buy})")
-                            else: st.write("뚜렷한 수급 없음")
-                        else: st.warning("수급 확인 불가")
-                    with c3:
-                        st.write("**🌳 일봉 상태**")
-                        if curr_price >= ma20: st.success("✅ 20일선 위 지지")
-                        else: st.warning("❌ 20일선 이탈")
-
-                    st.write("---")
-                    c4, c5 = st.columns(2)
-                    with c4:
-                        st.write("**📊 거래량 폭발**")
-                        if curr_m['Volume'] > prev_m['Volume'] * 1.5: st.success("✅ 1.5배 이상 폭발")
-                        else: st.write("❌ 변화 미비")
-                    with c5:
-                        st.write("**🚀 일봉 MACD**")
-                        if df['MACD'].iloc[-1] > df['Signal'].iloc[-1]: st.success("✅ MACD 상승")
-                        else: st.warning("❌ MACD 하락")
-
-                    st.write("---")
-                    st.subheader("📋 최근 10일 외국인/기관 수급 상세 현황 (단위: 주)")
-                    
-                    if not inv_df.empty:
-                        display_df = inv_df.head(10).copy()
-                        display_df['외국인'] = display_df['외국인'].apply(lambda x: f"{int(x):,}")
-                        display_df['기관합계'] = display_df['기관합계'].apply(lambda x: f"{int(x):,}")
-                        st.dataframe(display_df, use_container_width=True)
-                    else:
-                        st.error(f"🚨 수급 표를 불러오지 못했습니다. 원인 ➔ [ {inv_msg} ]")
-            else:
-                st.error("데이터가 부족합니다.")
-
-# ==========================================
-# 탭 2: 커스텀 스캔
-# ==========================================
-with tab2:
-    st.subheader("🖥️ 내 맘대로 조절하는 커스텀 스캐너")
+# 종목 코드 최종 추출 및 코스피/코스닥 판별
+if selected_stock == "직접 입력":
+    raw_code = st.sidebar.text_input("✍️ 종목코드 직접 입력 (6자리)", "005930")
+    market = st.sidebar.selectbox("📊 시장 구분", ["KOSPI (본장)", "KOSDAQ (코스닥)"])
+    m_type = "KOSDAQ" if "KOSDAQ" in market else "KOSPI"
+    final_code = format_stock_code(raw_code, m_type)
+    stock_name = "직접 지정 종목"
+else:
+    # 선택한 "삼성전자 (005930)" 문장에서 이름과 코드를 분리해내는 고급 기술
+    stock_name = selected_stock.split(" (")[0]
+    pure_code = selected_stock.split(" (")[1].replace(")", "").strip()
     
-    col_opt1, col_opt2, col_opt3 = st.columns(3)
-    with col_opt1:
-        vol_multiplier = st.slider("📊 거래량 (20일 평균의 몇 배?)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
-    with col_opt2:
-        ma20_limit = st.slider("🎯 20일선 이격도 (몇 % 이내?)", min_value=1.0, max_value=20.0, value=8.0, step=0.5)
-    with col_opt3:
-        min_trade_val = st.slider("💸 당일 거래대금 (억원 이상)", min_value=10, max_value=2000, value=100, step=50)
-        
-    col_chk1, col_chk2 = st.columns(2)
-    with col_chk1:
-        require_sugeub = st.checkbox("🔥 외인/기관 매수 필수", value=False)
-    with col_chk2:
-        exclude_double_sell = st.checkbox("🚫 당일 강력 양매도 종목 제외", value=True)
+    # 코스닥 종목(보통 코드가 2이나 3 등으로 시작하거나 대형주가 아닌 벤처들) 판별 안전장치
+    # 조금 더 정밀하게 하기 위해 코드가 특정 범위이거나 사용자가 선택할 수 있게 하되, 
+    # 기본적으로 야후에서 검틀하기 위해 포맷팅 적용
+    final_code = format_stock_code(pure_code)
+    
+# 알림 조건 및 주기 세팅
+target_percent = st.sidebar.number_input("🚨 알림 기준 상승률 (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
+check_interval = st.sidebar.slider("⏱️ 감시 주기 (초 단위)", min_value=5, max_value=300, value=30)
 
-    if st.button("🌟 커스텀 스캔 시작"):
-        results = []
-        p_bar = st.progress(0)
-        status_text = st.empty()
+# 4. 메인 대시보드 화면
+st.subheader(f"🔍 감시 대상: {stock_name} [{final_code}]")
+st.write(f"📢 **{check_interval}초**마다 주가를 추적하여 단기 **{target_percent}%** 이상 급등 시 팝업을 가동합니다.")
+
+# 실시간 엔진 가동 버튼
+if st.sidebar.button("🚀 실시간 지존 감시 가동"):
+    st.info("⚡ 야후 파이낸스 실시간 위성망에 연결하는 중...")
+    
+    log_area = st.empty()
+    alert_area = st.container()
+    
+    # 최초 가격 수집 (시작점 잡기)
+    try:
+        ticker = yf.Ticker(final_code)
+        init_data = ticker.history(period="1d", interval="1m")
         
-        start_date = (datetime.today() - timedelta(days=2000)).strftime('%Y-%m-%d')
-        naver_fail_count = 0 
-        last_error_msg = ""
-        
-        for i, (idx, row) in enumerate(krx_list.iterrows()):
-            p_bar.progress((i+1)/len(krx_list))
-            status_text.text(f"⏳ [{row['Name']}] 설정하신 조건으로 검색 중...")
-            try:
-                df = get_price_data(row['Code'], start_date)
-                if df.empty or len(df) < 250: continue 
-                
-                curr_price = df['Close'].iloc[-1]
-                curr_vol = df['Volume'].iloc[-1]
-                curr_trade_val_eok = (curr_price * curr_vol) / 100000000 
-                
-                ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                diff_percent = abs(curr_price - ma20) / ma20 * 100 
-                
-                avg_vol_20d = df['Volume'].rolling(20).mean().iloc[-2]
-                
-                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
-                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
-                df['MACD'] = df['EMA12'] - df['EMA26']
-                df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-                curr_macd = df['MACD'].iloc[-1]
-                curr_signal = df['Signal'].iloc[-1]
-                
-                m_df = df.resample('ME').agg({'Close': 'last'})
-                m_df['MA10'] = m_df['Close'].rolling(10).mean()
-                m_df = m_df.dropna()
-                
-                if not m_df.empty:
-                    curr_m_ma10 = m_df['MA10'].iloc[-1]
-                    
-                    # 7가지 기술적 분석 조건
-                    cond1 = curr_price >= curr_m_ma10        
-                    cond2 = curr_price >= ma20               
-                    cond3 = curr_macd > curr_signal          
-                    cond4 = avg_vol_20d >= 100000            
-                    cond5 = curr_vol >= (avg_vol_20d * vol_multiplier)  
-                    cond6 = diff_percent <= ma20_limit
-                    cond7 = curr_trade_val_eok >= min_trade_val
-                    
-                    if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
-                        inv_df, msg = get_naver_investor_data(row['Code'])
-                        
-                        # 양매도 제외 로직
-                        if exclude_double_sell and not inv_df.empty:
-                            if inv_df.iloc[0]['외국인'] < 0 and inv_df.iloc[0]['기관합계'] < 0:
-                                continue 
-                                
-                        # 💡 [정확한 3일 합산 로직]: 오늘 포함 최근 3거래일(맨 위 3줄) 합산
-                        if not inv_df.empty:
-                            f_sum = inv_df.head(3)['외국인'].sum()
-                            i_sum = inv_df.head(3)['기관합계'].sum()
-                        else:
-                            f_sum, i_sum = 0, 0
-                            naver_fail_count += 1
-                            last_error_msg = msg
-                            
-                        # 수급 필수 조건 확인
-                        if require_sugeub and f_sum <= 0 and i_sum <= 0:
-                            continue
-                            
-                        # 💡 단위 '주' 명시적 추가
-                        sugeub_text = f"외:{int(f_sum):,}주 / 기:{int(i_sum):,}주" if not inv_df.empty else "미확인"
-                        
-                        results.append({
-                            '시장':row['Market'], '종목명':row['Name'], '코드':row['Code'], 
-                            '현재가':int(curr_price), 
-                            '거래대금': f"{int(curr_trade_val_eok):,}억",
-                            '20일선_이격도': f"{round(diff_percent, 2)}%", 
-                            '폭발비율': f"{round(curr_vol/avg_vol_20d, 1)}배",
-                            '확정수급(3일)': sugeub_text
-                        })
-            except: continue
+        # 혹시 장 시작 직전이거나 코드가 안 맞으면 2일 치 데이터로 재시도
+        if init_data.empty:
+            init_data = ticker.history(period="2d")
             
-        status_text.success(f"✅ 스캔 완료! 설정 조건에 맞는 {len(results)}개 종목 발견")
-        
-        if require_sugeub and naver_fail_count > 0:
-            st.error(f"🚨 수급을 확인하지 못한 종목이 있습니다. 에러 원인 ➔ [ {last_error_msg} ]")
+        base_price = init_data['Close'].iloc[-1]
+        st.success(f"🎯 연결 완료! 실시간 추적 시작 (기준가격: {base_price:,.0f}원)")
+    except Exception as e:
+        # 코스피(.KS)로 안 찾아지면 코스닥(.KQ)으로 한 번 더 찔러보는 스마트 엔진
+        try:
+            alt_code = final_code.replace(".KS", ".KQ")
+            ticker = yf.Ticker(alt_code)
+            init_data = ticker.history(period="1d", interval="1m")
+            if init_data.empty: init_data = ticker.history(period="2d")
+            base_price = init_data['Close'].iloc[-1]
+            final_code = alt_code
+            st.success(f"🎯 코스닥 종목 연결 완료! (기준가격: {base_price:,.0f}원)")
+        except:
+            st.error(f"❌ 주식 데이터를 가져오지 못했습니다. 종목 코드나 시장 구분을 확인해 주세요! (오류: {e})")
+            st.stop()
+
+    # 5. 무한 루프 감시 시스템 작동
+    while True:
+        try:
+            now = datetime.now().strftime('%H:%M:%S')
+            current_data = ticker.history(period="1d", interval="1m")
+            current_price = current_data['Close'].iloc[-1]
             
-        if results:
-            res_df = pd.DataFrame(results)
-            st.dataframe(res_df, use_container_width=True)
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                res_df.to_excel(writer, index=False)
-            st.download_button("📥 맞춤형 리스트 다운로드", output.getvalue(), "EagleEye_Custom_Scan.xlsx")
+            # 상승률 연산
+            change_rate = ((current_price - base_price) / base_price) * 100
+            
+            # 메인 화면 전광판 갱신
+            with log_area:
+                st.metric(
+                    label=f"⏱️ [{now}] {stock_name} 실시간 현재가", 
+                    value=f"{current_price:,.0f}원", 
+                    delta=f"{change_rate:+.2f}% (감시 시작점 대비)"
+                )
+            
+            # 목표치 돌파 시 급등 사이렌
+            if change_rate >= target_percent:
+                with alert_area:
+                    st.balloons() # 축하 폭죽 효과
+                    st.error(f"🔔 [🔥지존 세력 급등 포착🔥] {stock_name}({final_code})이 기준가 대비 {change_rate:.2f}% 돌파! 현재가: {current_price:,.0f}원")
+                
+                # 다음 추적을 위해 기준가를 현재가로 자동 갱신
+                base_price = current_price
+                
+            time.sleep(check_interval)
+            
+        except Exception as e:
+            st.warning(f"데이터 갱신 대기 중... ({e})")
+            time.sleep(5)
