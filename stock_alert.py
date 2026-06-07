@@ -59,7 +59,7 @@ else:
     stock_names = {format_stock_code(row['Code']): row['Name'] for _, row in subset_df.iterrows()}
 
 # 알림 기준 및 감시 주기 설정
-target_percent = st.sidebar.number_input("🚨 알림 기준 변동률 (±%)", min_value=0.1, max_value=10.0, value=1.5, step=0.1)
+target_percent = st.sidebar.number_input("🚨 알림 기준 변동률 (±%)", min_value=0.0, max_value=10.0, value=1.5, step=0.1)
 detect_type = st.sidebar.selectbox("📈 감시 방향", ["우상향 급등만 포착", "우하향 급락만 포착", "급등/급락 둘 다 포착"])
 check_interval = st.sidebar.slider("⏱️ 감시 주기 (초 단위)", min_value=5, max_value=120, value=30)
 
