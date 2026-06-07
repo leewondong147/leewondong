@@ -8,5 +8,4 @@ xlsxwriter
 pandas
 requests
 lxml
-Plaintext
 yfinance
