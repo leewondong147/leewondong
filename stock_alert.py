@@ -6,8 +6,8 @@ from datetime import datetime
 
 # 1. 앱 화면 설정
 st.set_page_config(page_title="이원동 실시간 레이더", page_icon="📡", layout="wide")
-st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 4.0)")
-st.caption("오늘 아침 장 시작 가격(시가) 대비 실시간 누적 변동률을 누락 없이 초고속으로 포착합니다.")
+st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 5.0)")
+st.caption("어제 장 마감 가격(전일 종가) 대비 실시간 누적 변동률을 정확하게 포착합니다.")
 
 # 2. 한국거래소(KRX) 상장 종목 리스트 원격 수집
 @st.cache_data(ttl=3600)
@@ -29,7 +29,7 @@ def load_krx_list():
 
 krx_list = load_krx_list()
 
-# 3. 네이버 금융 실시간 주가 및 오늘 시가(시작가격) 수집 함수
+# 3. 네이버 금융 실시간 주가 및 전일 종가(어제 마감가) 수집 함수
 def get_naver_realtime_data(codes):
     results = {}
     if not codes:
@@ -45,15 +45,11 @@ def get_naver_realtime_data(codes):
             for item in items:
                 code = item['cd']
                 current_price = int(item['nv']) if item['nv'] is not None else 0
-                open_price = int(item['ov']) if item['ov'] is not None else 0 # ov = Open Value (오늘 아침 시작 가격!)
+                prev_close = int(item['sv']) if item['sv'] is not None else current_price # sv = Standard Value (어제 장 마감 가격!)
                 
-                # 혹시 오늘 시가가 0원이면(거래정지 등) 전일종가(sv)로 대체
-                if open_price == 0:
-                    open_price = int(item['sv']) if item['sv'] is not None else current_price
-                    
                 results[code] = {
                     "current": current_price,
-                    "open": open_price
+                    "prev_close": prev_close
                 }
     except:
         pass
@@ -98,14 +94,14 @@ else:
     final_codes = [pure_code]
     stock_names = {pure_code: selected_stock.split(" (")[0]}
 
-# 레이더 옵션 (하락장 세팅을 위해 폭을 좀 넓혀두었습니다)
+# 레이더 옵션 
 target_percent = st.sidebar.number_input("🚨 포착 기준 변동률 (몇 % 이상 급등락?)", min_value=0.0, max_value=30.0, value=3.0, step=0.1)
 detect_type = st.sidebar.selectbox("📈 감시 방향", ["급등/급락 둘 다 포착", "우하향 급락만 포착", "우상향 급등만 포착"])
 check_interval = st.sidebar.slider("⏱️ 감시 주기 (초 단위)", min_value=5, max_value=120, value=15)
 
 # 5. 메인 레이더 작동 구역
 st.subheader("📡 레이더 가동 준비 완료")
-st.write(f"📢 **[장 초반 기준 누적 버전]** 오늘 아침 시가 대비 **{target_percent}%** 이상 움직인 종목을 추적합니다.")
+st.write(f"📢 **[전일 종가 기준 누적 버전]** 어제 마감 가격 대비 **{target_percent}%** 이상 움직인 종목을 실시간 추적합니다.")
 
 if st.sidebar.button("🚀 실시간 레이더 가동"):
     if not final_codes:
@@ -123,10 +119,10 @@ if st.sidebar.button("🚀 실시간 레이더 가동"):
     while True:
         now_time = datetime.now().strftime('%H:%M:%S')
         with log_area:
-            st.write(f"🔄 [{now_time}] 레이더가 오늘 아침 시가 대비 누적 변동률을 계산 중...")
+            st.write(f"🔄 [{now_time}] 레이더가 전일 종가 대비 실시간 누적 변동률을 계산 중...")
 
         try:
-            # 네이버에서 현재가와 오늘 아침 시작가(ov)를 동시에 긁어옴
+            # 네이버에서 현재가와 전일종가(sv)를 동시에 긁어옴
             stock_data = get_naver_realtime_data(final_codes)
             
             for code in final_codes:
@@ -135,11 +131,11 @@ if st.sidebar.button("🚀 실시간 레이더 가동"):
                     if data is None: continue
                     
                     current_price = data["current"]
-                    base_price = data["open"] # 🚨 이제 기준가는 무조건 '오늘 아침 시작가'입니다!
+                    base_price = data["prev_close"] # 🚨 이제 기준가는 무조건 '어제 장 마감 가격(전일종가)'입니다!
                     
                     if current_price == 0 or base_price == 0: continue
                     
-                    # 오늘 아침 대비 변동률 연산!
+                    # 전일 종가 대비 실시간 누적 변동률 연산!
                     change_rate = ((current_price - base_price) / base_price) * 100
                     
                     # 조건 판단
@@ -161,9 +157,9 @@ if st.sidebar.button("🚀 실시간 레이더 가동"):
                                 "구분": event_type,
                                 "종목명": stock_names[code],
                                 "코드": code,
-                                "오늘시작가": f"{base_price:,.0f}원",
+                                "어제마감가": f"{base_price:,.0f}원",
                                 "현재가": f"{current_price:,.0f}원",
-                                "오늘대비변동률": f"{change_rate:+.2f}%"
+                                "전일대비변동률": f"{change_rate:+.2f}%"
                             })
                             # 급등이고 타겟 퍼센트가 0 초과일 때만 풍선 효과
                             if event_type == "🔥 급등 포착" and target_percent > 0: st.balloons()
@@ -174,11 +170,11 @@ if st.sidebar.button("🚀 실시간 레이더 가동"):
             if detected_events:
                 df_events = pd.DataFrame(detected_events)
                 with alert_container:
-                    st.error("🚨 [오늘 아침 대비 실시간 변동 종목 목록] 🚨")
+                    st.error("🚨 [어제 마감 대비 실시간 변동 종목 목록] 🚨")
                     st.dataframe(df_events, use_container_width=True)
             else:
                 with alert_container:
-                    st.info(f"📡 오늘 아침 시가 대비 ±{target_percent}% 이상 변동된 종목이 아직 없습니다. 기준값을 낮춰보세요.")
+                    st.info(f"📡 전일 종가 대비 ±{target_percent}% 이상 변동된 종목이 없습니다. 기준값을 조절해 보세요.")
                     
             time.sleep(check_interval)
         except Exception as e:
