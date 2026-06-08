@@ -9,7 +9,7 @@ from datetime import datetime
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 실시간 레이더", page_icon="📡", layout="wide")
-st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 7.0)")
+st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 7.1)")
 st.caption("어제 장 마감 가격 대비 실시간 누적 변동률을 '한글 종목명' 기반으로 편리하게 포착합니다.")
 
 # 1. 거래소 전체 종목 수집 및 정제
@@ -23,17 +23,16 @@ def load_krx_list_secure():
         
         df_final = df_total[['Name', 'Code']].copy()
         df_final['Code'] = df_final['Code'].astype(str).str.zfill(6)
-        # 공백 제거로 매칭 정확도 업그레이드
         df_final['Name_Clean'] = df_final['Name'].str.replace(" ", "").str.upper()
         return df_final
     except Exception as e:
-        # 비상용 백업 리스트
+        # 🚨 [수정 완료] 오타로 에러가 났던 백업 리스트 구역을 완벽하게 교정했습니다.
         backup = [
             {"Name": "삼성전자", "Code": "005930"}, {"Name": "SK하이닉스", "Code": "000660"},
             {"Name": "현대차", "Code": "005380"}, {"Name": "네이버", "Code": "035420"},
             {"Name": "카카오", "Code": "035720"}, {"Name": "에코프로비엠", "Code": "247540"},
             {"Name": "기아", "Code": "000270"}, {"Name": "셀트리온", "Code": "068270"},
-            {"Name": "POSCO홀딩스", "Code": "005490"}, {"Name": "LG에너지솔루션", "73220"}
+            {"Name": "POSCO홀딩스", "Code": "005490"}, {"Name": "LG에너지솔루션", "Code": "373220"}
         ]
         df_b = pd.DataFrame(backup)
         df_b['Name_Clean'] = df_b['Name'].str.replace(" ", "").str.upper()
@@ -83,26 +82,22 @@ if watch_mode == "🛰️ 상위 종목 전체 스캔":
 
 elif watch_mode == "📋 내 매수 종목만 감시":
     st.sidebar.subheader("✍️ 내 매수 종목명 입력")
-    # ⭐ [혁신] 이제 숫자가 아니라 한글 이름을 적습니다!
     my_stocks_input = st.sidebar.text_area(
         "종목 이름을 쉼표(,)로 구분해서 적으세요:", 
         value="삼성전자, SK하이닉스", 
         help="예시: 삼성전자, 현대차, 카카오"
     )
     
-    # 대표님이 입력하신 한글 이름들 정제
     raw_names = [n.strip().replace(" ", "").upper() for n in my_stocks_input.split(",") if n.strip()]
     
     for name in raw_names:
-        # 한글 이름으로 거래소 리스트에서 6자리 코드 찾기
         matched = krx_list[krx_list['Name_Clean'] == name]
         if not matched.empty:
             code = matched.iloc[0]['Code']
             real_name = matched.iloc[0]['Name']
             final_codes.append(code)
-            stock_names[code] = real_name  # 🚨 숫자가 아닌 진짜 한글 이름을 딕셔너리에 셋팅!
+            stock_names[code] = real_name
         else:
-            # 혹시 오타가 났거나 못 찾은 경우 화면 알림용
             if name:
                 st.sidebar.warning(f"⚠️ '{name}' 종목은 리스트에서 찾을 수 없습니다. 오타를 확인해 주세요.")
 
@@ -173,12 +168,11 @@ if st.sidebar.button("🚀 실시간 레이더 가동"):
                         event_type = "📉 급락 경고"
                         
                     if is_detected:
-                        # 🚨 전광판 표에 출력할 때 'stock_names[code]'를 사용해 완벽한 한글 이름으로만 꽂아줍니다!
                         if not any(e['종목명'] == stock_names[code] and e['현재가'] == f"{current_price:,.0f}원" for e in detected_events):
                             detected_events.insert(0, {
                                 "시간": now_time,
                                 "구분": event_type,
-                                "종목명": stock_names[code],  # 한글 이름 출력!
+                                "종목명": stock_names[code],
                                 "어제마감가": f"{base_price:,.0f}원",
                                 "현재가": f"{current_price:,.0f}원",
                                 "전일대비변동률": f"{change_rate:+.2f}%"
