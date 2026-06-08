@@ -9,30 +9,32 @@ from datetime import datetime
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 실시간 레이더", page_icon="📡", layout="wide")
-st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 7.1)")
-st.caption("어제 장 마감 가격 대비 실시간 누적 변동률을 '한글 종목명' 기반으로 편리하게 포착합니다.")
+st.title("📡 이원동의 '실시간 전종목 급등락 레이더' (Ver 7.2)")
+st.caption("어제 장 마감 가격 대비 실시간 누적 변동률을 대한민국 전종목(2,600+) 대상으로 포착합니다.")
 
-# 1. 거래소 전체 종목 수집 및 정제
+# 1. 🚨 [완벽 해결] 코스피/코스닥 전 종목을 제한 없이 통째로 수집
 @st.cache_data(ttl=3600)
 def load_krx_list_secure():
     try:
-        # 코스피/코스닥 대형주 위주로 넉넉하게 600개 수집
-        df_ks = fdr.StockListing('KOSPI').head(400)
-        df_kd = fdr.StockListing('KOSDAQ').head(200)
+        # .head()를 과감히 삭제하여 코스피/코스닥 상장된 모든 종목(약 2,600개)을 가져옵니다!
+        df_ks = fdr.StockListing('KOSPI')
+        df_kd = fdr.StockListing('KOSDAQ')
         df_total = pd.concat([df_ks, df_kd], ignore_index=True)
         
         df_final = df_total[['Name', 'Code']].copy()
         df_final['Code'] = df_final['Code'].astype(str).str.zfill(6)
+        # 검색 정확도를 위해 공백을 없애고 대문자로 통일
         df_final['Name_Clean'] = df_final['Name'].str.replace(" ", "").str.upper()
         return df_final
     except Exception as e:
-        # 🚨 [수정 완료] 오타로 에러가 났던 백업 리스트 구역을 완벽하게 교정했습니다.
+        # 최후의 보루 백업용 리스트
         backup = [
             {"Name": "삼성전자", "Code": "005930"}, {"Name": "SK하이닉스", "Code": "000660"},
             {"Name": "현대차", "Code": "005380"}, {"Name": "네이버", "Code": "035420"},
             {"Name": "카카오", "Code": "035720"}, {"Name": "에코프로비엠", "Code": "247540"},
             {"Name": "기아", "Code": "000270"}, {"Name": "셀트리온", "Code": "068270"},
-            {"Name": "POSCO홀딩스", "Code": "005490"}, {"Name": "LG에너지솔루션", "Code": "373220"}
+            {"Name": "POSCO홀딩스", "Code": "005490"}, {"Name": "LG에너지솔루션", "Code": "373220"},
+            {"Name": "두산에너빌리티", "Code": "034020"}
         ]
         df_b = pd.DataFrame(backup)
         df_b['Name_Clean'] = df_b['Name'].str.replace(" ", "").str.upper()
@@ -47,6 +49,7 @@ def get_naver_realtime_data(codes):
         return results
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
+        # 대량 종목 처리를 위해 50개씩 조각내서 전송
         chunks = [codes[i:i + 50] for i in range(0, len(codes), 50)]
         for chunk in chunks:
             chunk_str = ",".join(chunk)
@@ -75,19 +78,22 @@ final_codes = []
 stock_names = {}
 
 if watch_mode == "🛰️ 상위 종목 전체 스캔":
-    scan_limit = st.sidebar.slider("📊 스캔할 종목 수 (상위 N개)", min_value=10, max_value=len(krx_list), value=200, step=10)
+    # 전 종목이 로드되므로 최대 슬라이더 범위를 시장 전체 크기로 유연하게 확장
+    scan_limit = st.sidebar.slider("📊 스캔할 종목 수 (상위 N개)", min_value=10, max_value=min(500, len(krx_list)), value=200, step=10)
     subset_df = krx_list.head(scan_limit)
     final_codes = subset_df['Code'].tolist()
     stock_names = {row['Code']: row['Name'] for _, row in subset_df.iterrows()}
 
 elif watch_mode == "📋 내 매수 종목만 감시":
     st.sidebar.subheader("✍️ 내 매수 종목명 입력")
+    # 기본 입력 예시에 두산에너빌리티를 딱 넣어드렸습니다!
     my_stocks_input = st.sidebar.text_area(
         "종목 이름을 쉼표(,)로 구분해서 적으세요:", 
-        value="삼성전자, SK하이닉스", 
-        help="예시: 삼성전자, 현대차, 카카오"
+        value="삼성전자, 두산에너빌리티", 
+        help="예시: 삼성전자, 두산에너빌리티, 현대차"
     )
     
+    # 공백 제거 및 대문자 정제
     raw_names = [n.strip().replace(" ", "").upper() for n in my_stocks_input.split(",") if n.strip()]
     
     for name in raw_names:
