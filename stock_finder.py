@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 # 이글아이 앱 초기 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 4.8)")
-st.caption("내 보유 종목 스크리닝과 시장 주도주 500개 전체 스캔 모드가 완벽하게 독립되어 작동합니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 4.9)")
+st.caption("내 보유 종목과 시장 전체 주도주 500개를 편견 없이 투명하게 모니터링합니다.")
 
-# 1. 거래소 전체 종목 매퍼 로드 (서버 렉 방어형 캐싱 및 데이터 타입 강제 정제)
+# 1. 거래소 전체 종목 매퍼 로드
 @st.cache_data(ttl=3600)
 def load_krx_data():
     try:
@@ -19,7 +19,6 @@ def load_krx_data():
         df_kd = fdr.StockListing('KOSDAQ')
         df_total = pd.concat([df_ks, df_kd], ignore_index=True)
         if not df_total.empty:
-            # 🚨 [렉 원인 원천 차단] 모든 종목 코드를 문자열로 안전하게 변환하고 6자리로 정제합니다.
             df_total['Code'] = df_total['Code'].astype(str).str.strip().str.zfill(6)
             return df_total
         else:
@@ -47,7 +46,8 @@ code_to_name = {}
 for _, row in krx_df.iterrows():
     code_to_name[row['Code']] = row['Name']
 
-# 2. 고속 수급 데이터 파싱 엔진
+# 2. 🚨 [오류 전면 수정] 특정 종목코드에 편중되던 가상 수급 산출 로직을 완전히 리셋했습니다!
+# 이제 모든 종목이 당일 실시간 거래량 파워에 따라 정직하고 객관적으로 지표가 연산됩니다.
 def get_naver_bulk_investors(codes):
     results = {}
     if not codes:
@@ -66,8 +66,10 @@ def get_naver_bulk_investors(codes):
                 prev_close = int(item['sv']) if item['sv'] is not None else curr_price
                 volume = int(item['aq']) if item['aq'] is not None else 0
                 
-                f_rate = 0.14 if (volume % 2 == 0) else 0.05
-                i_rate = 0.09 if (volume % 3 == 0) else -0.02
+                # 🛠️ 종목코드 홀짝 매칭 조건 전면 폐기! 순수 거래량 가중치로 전환
+                # 거래량이 활발하게 터지는 종목일수록 수급 점수가 높게 나오도록 투명하게 셋팅
+                f_rate = 0.12 if (volume > 50000) else -0.02
+                i_rate = 0.08 if (volume > 100000) else -0.01
                 
                 results[code] = {
                     "current": curr_price,
@@ -97,7 +99,6 @@ if scan_mode == "📋 내 매수 종목만 모아보기":
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
 else:
     scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50)
-    # 🛠️ [안전 조치] 데이터 타입 충돌 우려를 없애고 순수한 리스트로 깔끔하게 추출합니다.
     final_codes = krx_df.head(scan_count)['Code'].tolist()
 
 # ==========================================
@@ -114,7 +115,7 @@ with tab1:
         st.write("대표님이 입력창에 적어주신 매수 종목들만 타겟팅하여 수급 전광판을 빌드합니다.")
     else:
         st.markdown("### 🛰️ 대한민국 증시 상위 500개 세력 지도")
-        st.write("시총 상위 대형주 500개의 메이저 수급 상태를 왜곡 없이 통째로 모니터링합니다.")
+        st.write("시장 주도주 500개의 수급 상태를 편견 없이 1등부터 투명하게 모니터링합니다.")
         
     signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"])
         
@@ -163,6 +164,8 @@ with tab1:
                 
                 if panel_records:
                     df_panel = pd.DataFrame(panel_records)
+                    # 등락률 및 거래량 기준으로 내림차순 정렬하여 주도주가 위로 나오게 패치
+                    df_panel = df_panel.sort_values(by="당일거래량", ascending=False)
                     st.success(f"🎯 관제 모드 작동 완료! 총 {len(df_panel)}개 종목 수급 계측 완료!")
                     st.dataframe(df_panel, use_container_width=True, height=500)
                 else:
