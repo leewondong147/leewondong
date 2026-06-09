@@ -9,7 +9,7 @@ from datetime import datetime
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 자산 증식 레이더", page_icon="💸", layout="wide")
-st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.1)")
+st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.2)")
 st.caption("시장의 진짜 돈줄(거래대금)을 추적하고, 보조지표(RSI/이격도) 기반 단기 바닥 타점을 실시간 엄선합니다.")
 
 # 1. 거래소 전체 종목 매퍼 로드
@@ -136,35 +136,3 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
                     price_history[code].append(curr_price)
                     if len(price_history[code]) > 30:
                         price_history[code].pop(0)
-                        
-                    cond_money = trade_money >= min_money
-                    rsi_val = calculate_rsi(price_history[code])
-                    disparity_val = (curr_price / prev_close) * 100
-                    cond_bottom = (rsi_val <= rsi_limit) or (disparity_val <= disparity_limit)
-                    
-                    if cond_money or (watch_mode == "📋 내 관심/보유 종목 지정 감시" and cond_bottom):
-                        stock_name = code_to_name_map.get(code, f"미등록({code})")
-                        change_rate = ((curr_price - prev_close) / prev_close) * 100
-                        
-                        if cond_money and cond_bottom:
-                            signal_type = "👑 [지존] 대금폭발+바닥눌림"
-                        elif cond_money:
-                            signal_type = "🔥 [주도주] 거래대금 폭발"
-                        else:
-                            signal_type = "🛡️ [타점] 과매도 바닥눌림"
-                            
-                        # 🚨 [깔끔하게 수정 완료] 복잡한 구문 대신 가장 안정적인 중복 검증 로직으로 변경했습니다.
-                        is_duplicate = False
-                        for e in detected_signals:
-                            if e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원":
-                                is_duplicate = True
-                                break
-                                
-                        if not is_duplicate:
-                            detected_signals.insert(0, {
-                                "포착시간": now_time,
-                                "시그널": signal_type,
-                                "종목명": stock_name,
-                                "현재가": f"{curr_price:,.0f}원",
-                                "당일변동률": f"{change_rate:+.2f}%",
-                                "당일거래대금": f"{int(trade_money):
