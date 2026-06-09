@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 6.0)")
-st.caption("메뉴 전환 시 데이터 소스를 강제 포맷하여, 9개 종목 갇힘 현상을 원천 차단한 무결점 버전입니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 6.1)")
+st.caption("기본 예시글 자물쇠를 완전히 제거하여, 대표님이 입력하신 보유 종목만 100% 완벽 출력합니다.")
 
 # 1. 거래소 전체 종목 매퍼 로드 (데이터 타입 강제 정제)
 def load_krx_data_clean():
@@ -77,10 +77,8 @@ def get_naver_bulk_investors(codes):
         pass
     return results
 
-
 # ==========================================
-# 🚨 [혁신] 스트림릿 고유의 세션 상태(Session State) 초기화 시스템 도입
-# 라디오 단추가 바뀌면 과거 기억을 강제로 즉시 소각합니다.
+# 사이드바 제어판
 # ==========================================
 st.sidebar.header("⚙️ 관제 대상 설정")
 scan_mode = st.sidebar.radio(
@@ -89,21 +87,20 @@ scan_mode = st.sidebar.radio(
     key="main_scan_mode"
 )
 
-# 🛠️ 모드가 바뀔 때마다 final_codes 소스를 완전히 새로 고침
 final_codes = []
 
 if scan_mode == "📋 내 매수 종목만 모아보기":
     st.sidebar.subheader("✍️ 내 매수 종목 입력")
+    # 🚨 [완벽 해결] 강제로 박혀있던 9개 예시글 자물쇠를 완전히 폭파했습니다!
+    # 이제 대표님이 웹 화면에서 지우고 쓰시는 대로 실시간 동기화됩니다.
     my_stocks_input = st.sidebar.text_area(
         "종목코드 6자리를 쉼표(,)로 적으세요:", 
-        value="005930, 267260, 000720, 042700, 328130, 034020, 000660, 005380, 247540",
+        value="005930", # 기본값은 삼성전자 딱 1개만 띄워둡니다.
         key="my_stocks_text_area"
     )
-    # 대표님이 입력한 것'만' 완벽 타겟팅
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
 else:
     scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50, key="scan_count_slider")
-    # 전체 스캔일 때는 대표님 9개 종목 리스트를 '메모리에서 완전히 소멸' 시키고 순수 시총 상위로만 채웁니다!
     final_codes = krx_df.head(scan_count)['Code'].tolist()
 
 
@@ -113,19 +110,18 @@ else:
 tab1, tab2 = st.tabs(["📊 1번 무기: 실시간 세력 수급 전광판", "🎯 2번 무기: 1종목 현미경 정밀진단"])
 
 # ------------------------------------------
-# [TAB 1] 보유종목 또는 500개 수급 전광판 구역
+# [TAB 1] 수급 전광판 구역
 # ------------------------------------------
 with tab1:
     if scan_mode == "📋 내 매수 종목만 모아보기":
         st.markdown("### 📋 내 매수 종목 세력 수급 현황판")
-        st.write("대표님이 입력창에 적어주신 매수 종목들만 타겟팅하여 수급 전광판을 빌드합니다.")
+        st.write("대표님이 입력창에 입력하신 보유 종목들만 정확하게 추려내어 전광판을 완성합니다.")
     else:
         st.markdown("### 🛰️ 대한민국 증시 상위 500개 세력 지도")
-        st.write("시장 주도주 500개의 수급 상태를 과거 메모리 잔상 없이 실시간 모니터링합니다.")
+        st.write("시장 주도주 500개의 수급 상태를 투명하게 모니터링합니다.")
         
     signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"], key="filter_selectbox")
     
-    # 🚨 모드별로 고유한 작동 버튼 키를 부여하여 스트림릿 버퍼 꼬임 현상을 완벽 차단합니다.
     button_key = "btn_my_stock" if scan_mode == "📋 내 매수 종목만 모아보기" else "btn_all_500"
     
     if st.button("🚀 실시간 수급 전광판 가동", key=button_key):
@@ -133,7 +129,6 @@ with tab1:
             st.error("❌ 감시할 종목 코드가 지정되지 않았습니다.")
         else:
             with st.spinner("⌛ 메이저 세력 수급 데이터 연산 및 전광판 매핑 중..."):
-                # 싱싱하게 새로 생성된 final_codes 배열을 기반으로 벌크 패치!
                 bulk_data = get_naver_bulk_investors(final_codes)
                 
                 panel_records = []
