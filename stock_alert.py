@@ -43,7 +43,7 @@ def calculate_rsi(prices, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1] if not rsi.empty else 50
 
-# 3. 네이버 금융 실시간 멀티 데이터 수집 엔진 (현재가, 전일종가, 거래량, 거래대금, 고가, 저가 다중 파싱)
+# 3. 네이버 금융 실시간 멀티 데이터 수집 엔진
 def get_naver_advanced_data(codes):
     results = {}
     if not codes:
@@ -60,8 +60,8 @@ def get_naver_advanced_data(codes):
                 code = item['cd']
                 current_price = int(item['nv']) if item['nv'] is not None else 0
                 prev_close = int(item['sv']) if item['sv'] is not None else current_price
-                volume = int(item['aq']) if item['aq'] is not None else 0 # 당일 누적 거래량
-                trade_value_eok = int(item['aa']) / 100000000 if item['aa'] is not None else 0 # 당일 누적 거래대금 (원 단위 -> 억원 단위 변환)
+                volume = int(item['aq']) if item['aq'] is not None else 0
+                trade_value_eok = int(item['aa']) / 100000000 if item['aa'] is not None else 0
                 
                 results[code] = {
                     "current": current_price,
@@ -98,8 +98,8 @@ min_money = st.sidebar.number_input("💸 당일 거래대금 기준 (억원 이
 
 st.sidebar.write("---")
 st.sidebar.subheader("🛡️ 2번 전략: 눌림목 바닥 조건")
-rsi_limit = st.sidebar.slider("📉 RSI 과매도 기준치 (이하)", min_value=20, max_value=45, value=35, help="30~35 이하면 역사적 단기 바닥 구간입니다.")
-disparity_limit = st.sidebar.slider("🎯 20일선 이격도 하한선 (몇 % 이탈?)", min_value=80.0, max_value=99.0, value=95.0, help="95% 이하면 20일선 밑으로 과도하게 급락했다는 뜻입니다.")
+rsi_limit = st.sidebar.slider("📉 RSI 과매도 기준치 (이하)", min_value=20, max_value=45, value=35)
+disparity_limit = st.sidebar.slider("🎯 20일선 이격도 하한선 (몇 % 이탈?)", min_value=80.0, max_value=99.0, value=95.0)
 
 check_interval = st.sidebar.slider("⏱️ 레이더 회전 주기 (초 단위)", min_value=10, max_value=120, value=20)
 
@@ -113,7 +113,6 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
     log_area = st.empty()
     grid_container = st.empty()
     
-    # 지표 연산용 가격 히스토리 저장소 임시 구축
     price_history = {code: [] for code in final_codes}
     detected_signals = []
 
@@ -123,7 +122,6 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
             st.write(f"🔄 [{now_time}] 세력 거래대금 유입량 및 보조지표 바닥 매칭 연산 중...")
 
         try:
-            # 실시간 정밀 종합 데이터 패치
             live_data = get_naver_advanced_data(final_codes)
             
             for code in final_codes:
@@ -135,29 +133,19 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
                     prev_close = data["prev_close"]
                     trade_money = data["trade_value_eok"]
                     
-                    # 지표 계산을 위한 가격 배열 축적
                     price_history[code].append(curr_price)
-                    if len(price_history[code]) > 30: # 메모리 관리 위해 최근 30개만 유지
+                    if len(price_history[code]) > 30:
                         price_history[code].pop(0)
                         
-                    # 1번 조건 검증: 거래대금 기준치 초과 여부
                     cond_money = trade_money >= min_money
-                    
-                    # 2번 조건 검증: RSI 및 이격도 계산
                     rsi_val = calculate_rsi(price_history[code])
-                    
-                    # 20일선 대용 전일 종가 대비 이격도 비율 연산
                     disparity_val = (curr_price / prev_close) * 100
-                    
-                    # 바닥 매칭: RSI가 낮거나, 이격도가 과하게 밀렸거나
                     cond_bottom = (rsi_val <= rsi_limit) or (disparity_val <= disparity_limit)
                     
-                    # ⭐ [돈이 들어왔는데 가격은 바닥이거나 주도주 성격인 경우 최종 포착]
                     if cond_money or (watch_mode == "📋 내 관심/보유 종목 지정 감시" and cond_bottom):
                         stock_name = code_to_name_map.get(code, f"미등록({code})")
                         change_rate = ((curr_price - prev_close) / prev_close) * 100
                         
-                        # 시그널 판정
                         if cond_money and cond_bottom:
                             signal_type = "👑 [지존] 대금폭발+바닥눌림"
                         elif cond_money:
@@ -165,24 +153,22 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
                         else:
                             signal_type = "🛡️ [타점] 과매도 바닥눌림"
                             
-                        # 전광판 중복 방지 및 최신화
-                        if not any(e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원" for e in detected_signals):
-                            detected_signals.insert(0, {
-                                "포착시간": now_time,
-                                "시그널": signal_type,
-                                "종목명": stock_name,
-                                "현재가": f"{curr_price:,.0f}원",
-                                "당일변동률": f"{change_rate:+.2f}%",
-                                "당일거래대금": f"{int(trade_money):,}억",
-                                "RSI지표": f"{round(rsi_val, 1)}",
-                                "이격수준": f"{round(disparity_val, 1)}%"
-                            })
-                            # 지존 신호 떴을 때는 무조건 대박 폭죽
-                            if "👑" in signal_type: st.balloons()
+                        if not any(e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원" for e in detected_events if 'detected_events' in locals() else []):
+                            if not any(e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원" for e in detected_signals):
+                                detected_signals.insert(0, {
+                                    "포착시간": now_time,
+                                    "시그널": signal_type,
+                                    "종목명": stock_name,
+                                    "현재가": f"{curr_price:,.0f}원",
+                                    "당일변동률": f"{change_rate:+.2f}%",
+                                    "당일거래대금": f"{int(trade_money):,}억",
+                                    "RSI지표": f"{round(rsi_val, 1)}",
+                                    "이격수준": f"{round(disparity_val, 1)}%"
+                                })
+                                if "👑" in signal_type: st.balloons()
                 except:
                     continue
             
-            # 실시간 전광판 렌더링
             if detected_signals:
                 df_disp = pd.DataFrame(detected_signals)
                 with grid_container:
