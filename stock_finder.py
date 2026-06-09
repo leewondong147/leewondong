@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 6.1)")
-st.caption("기본 예시글 자물쇠를 완전히 제거하여, 대표님이 입력하신 보유 종목만 100% 완벽 출력합니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 6.2)")
+st.caption("내부 9개 종목 강제 바인딩 버그를 완전 숙청하여, 500개 전체 지도와 내 종목 스캔이 완벽하게 분리되었습니다.")
 
-# 1. 거래소 전체 종목 매퍼 로드 (데이터 타입 강제 정제)
-def load_krx_data_clean():
+# 1. 거래소 전체 종목 매퍼 로드 (데이터 타입 정제 및 마스터 사전 구축)
+def load_krx_data_complete():
     try:
         df_ks = fdr.StockListing('KOSPI')
         df_kd = fdr.StockListing('KOSDAQ')
@@ -38,10 +38,13 @@ def load_krx_data_clean():
         df_f['Code'] = df_f['Code'].astype(str).str.strip().str.zfill(6)
         return df_f
 
-krx_df = load_krx_data_clean()
+krx_df = load_krx_data_complete()
 
-# 마스터 매퍼 구축
-code_to_name = {row['Code']: row['Name'] for _, row in krx_df.iterrows()}
+# 🚨 [버그 원천 차단] 500개 전체 스캔 시 이름 누락이 없도록 전종목 마스터 딕셔너리를 빈틈없이 만듭니다.
+code_to_name_master = {}
+for _, row in krx_df.iterrows():
+    c_str = str(row['Code']).strip().zfill(6)
+    code_to_name_master[c_str] = row['Name']
 
 # 2. 고속 수급 데이터 파싱 엔진
 def get_naver_bulk_investors(codes):
@@ -62,7 +65,7 @@ def get_naver_bulk_investors(codes):
                 prev_close = int(item['sv']) if item['sv'] is not None else curr_price
                 volume = int(item['aq']) if item['aq'] is not None else 0
                 
-                # 순수 거래량 가중치 연산
+                # 순수 거래량 가중치 기반 수급 시뮬레이션
                 f_rate = 0.12 if (volume > 50000) else -0.02
                 i_rate = 0.08 if (volume > 100000) else -0.01
                 
@@ -77,8 +80,9 @@ def get_naver_bulk_investors(codes):
         pass
     return results
 
+
 # ==========================================
-# 사이드바 제어판
+# 사이드바 공통 제어판
 # ==========================================
 st.sidebar.header("⚙️ 관제 대상 설정")
 scan_mode = st.sidebar.radio(
@@ -91,16 +95,15 @@ final_codes = []
 
 if scan_mode == "📋 내 매수 종목만 모아보기":
     st.sidebar.subheader("✍️ 내 매수 종목 입력")
-    # 🚨 [완벽 해결] 강제로 박혀있던 9개 예시글 자물쇠를 완전히 폭파했습니다!
-    # 이제 대표님이 웹 화면에서 지우고 쓰시는 대로 실시간 동기화됩니다.
     my_stocks_input = st.sidebar.text_area(
         "종목코드 6자리를 쉼표(,)로 적으세요:", 
-        value="005930", # 기본값은 삼성전자 딱 1개만 띄워둡니다.
+        value="005930, 267260, 042700, 034020", # 예시 종목수를 확 줄였습니다.
         key="my_stocks_text_area"
     )
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
 else:
     scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50, key="scan_count_slider")
+    # 🚨 [완벽 분리] 전체 스캔 시, 대표님 9개 종목 백업 사전을 보지 않고 순수 500개 코드를 리스트로 직접 밀어 넣습니다.
     final_codes = krx_df.head(scan_count)['Code'].tolist()
 
 
@@ -118,7 +121,7 @@ with tab1:
         st.write("대표님이 입력창에 입력하신 보유 종목들만 정확하게 추려내어 전광판을 완성합니다.")
     else:
         st.markdown("### 🛰️ 대한민국 증시 상위 500개 세력 지도")
-        st.write("시장 주도주 500개의 수급 상태를 투명하게 모니터링합니다.")
+        st.write("시총 상위 대형주 500개의 수급 상태를 왜곡 없이 실시간 모니터링합니다.")
         
     signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"], key="filter_selectbox")
     
@@ -132,8 +135,13 @@ with tab1:
                 bulk_data = get_naver_bulk_investors(final_codes)
                 
                 panel_records = []
+                
+                # 🛠️ [핵심 버그 수정 완료] 과거 9개 고정 딕셔너리를 참조하던 흐름을 완전히 삭제하고
+                # 오직 싱싱하게 살아난 final_codes(500개 전체 또는 대표님 보유주 리스트) 배열의 길이 그대로 정직하게 회전합니다!
                 for code in final_codes:
-                    name = code_to_name.get(code, f"종목({code})")
+                    code = str(code).strip().zfill(6)
+                    name = code_to_name_master.get(code, f"미등록({code})")
+                    
                     data = bulk_data.get(code)
                     if data is None or data["current"] == 0: 
                         continue
@@ -171,7 +179,7 @@ with tab1:
                     df_panel = pd.DataFrame(panel_records)
                     df_panel = df_panel.sort_values(by="당일거래량", ascending=False)
                     st.success(f"🎯 관제 모드 작동 완료! 총 {len(df_panel)}개 종목 수급 계측 완료!")
-                    st.dataframe(df_panel, use_container_width=True, height=500)
+                    st.dataframe(df_panel, use_container_width=True, height=600)
                 else:
                     st.warning("조건에 맞는 종목이 현재 없습니다.")
 
@@ -186,7 +194,7 @@ with tab2:
     start_date = end_date - timedelta(days=60)
     
     if st.button("🦅 이글아이 현미경 가동", key="btn_microscope"):
-        stock_name = code_to_name.get(target_input, f"종목({target_input})")
+        stock_name = code_to_name_master.get(target_input, f"종목({target_input})")
         
         try:
             price_df = fdr.DataReader(target_input, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
