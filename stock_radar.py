@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 7.0)")
-st.caption("고장 난 서버 기억을 완전히 파괴하고, 완전히 새로운 데이터 파이프라인으로 500개 주도주를 전개합니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 8.0)")
+st.caption("시장 주도주 500개 전체 스캔 모드와 내 매수 종목 관제 모드가 완벽하게 작동하는 진짜 이글아이 본체입니다.")
 
-# 1. 거래소 전체 종목 매퍼 로드
+# 1. 거래소 전체 종목 매퍼 로드 (데이터 타입 정제 및 마스터 사전 구축)
 def load_krx_data_complete():
     try:
         df_ks = fdr.StockListing('KOSPI')
@@ -40,10 +40,8 @@ def load_krx_data_complete():
 
 krx_df = load_krx_data_complete()
 
-# 마스터 딕셔너리 구축 (500개 데이터 이름 매칭용)
-code_to_name_master = {}
-for _, row in krx_df.iterrows():
-    code_to_name_master[str(row['Code'])] = row['Name']
+# 전종목 마스터 딕셔너리 구축
+code_to_name_master = {str(row['Code']).strip().zfill(6): row['Name'] for _, row in krx_df.iterrows()}
 
 # 2. 고속 수급 데이터 파싱 엔진
 def get_naver_bulk_investors(codes):
@@ -80,29 +78,28 @@ def get_naver_bulk_investors(codes):
 
 
 # ==========================================
-# 사이드바 제어판
+# 🚨 [원상 복구] 이글아이 전용 사이드바 제어판
 # ==========================================
 st.sidebar.header("⚙️ 관제 대상 설정")
 scan_mode = st.sidebar.radio(
     "👇 스캔 대상 선택", 
-    ["📋 내 매수 종목만 모아보기", "🛰️ 시장 상위 500개 전체 스캔"],
-    key="radar_scan_mode"
+    ["🛰 * 시장 상위 500개 전체 스캔", "📋 내 매수 종목만 모아보기"],
+    key="eagle_eye_mode"
 )
 
 final_codes = []
 
-if scan_mode == "📋 내 매수 종목만 모아보기":
+if scan_mode == "🛰 * 시장 상위 500개 전체 스캔":
+    scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50, key="ee_slider")
+    final_codes = krx_df.head(scan_count)['Code'].tolist()
+else:
     st.sidebar.subheader("✍️ 내 매수 종목 입력")
     my_stocks_input = st.sidebar.text_area(
         "종목코드 6자리를 쉼표(,)로 적으세요:", 
-        value="005930, 267260", 
-        key="radar_text_area"
+        value="005930, 267260, 042700, 034020, 000720, 328130", 
+        key="ee_text_area"
     )
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
-else:
-    scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50, key="radar_slider")
-    # 과거 9개 기억을 완전히 지워버리기 위해 크랙을 가해 쌩 코드를 바로 주입합니다.
-    final_codes = [str(code).strip().zfill(6) for code in krx_df.head(scan_count)['Code'].tolist()]
 
 
 # ==========================================
@@ -111,17 +108,16 @@ else:
 tab1, tab2 = st.tabs(["📊 실시간 세력 수급 전광판", "🎯 1종목 현미경 정밀진단"])
 
 with tab1:
-    if scan_mode == "📋 내 매수 종목만 모아보기":
-        st.markdown("### 📋 내 매수 종목 세력 수급 현황판")
-        st.write("대표님이 입력창에 입력하신 보유 종목들만 정확하게 추려내어 전광판을 완성합니다.")
+    if scan_mode == "🛰 * 시장 상위 500개 전체 스캔":
+        st.markdown("### 🛰️ 대한민국 증시 상위 우량주 세력 지도")
+        st.write("시총 상위 대형주들의 수급 상태를 실시간 모니터링합니다.")
     else:
-        st.markdown("### 🛰️ 대한민국 증시 상위 500개 세력 지도")
-        st.write("시총 상위 대형주 500개의 수급 상태를 실시간 모니터링합니다.")
+        st.markdown("### 📋 내 매수 종목 세력 수급 현황판")
+        st.write("대표님이 아래 입력창에 적어주신 매수 종목들만 타겟팅하여 빌드합니다.")
         
-    signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"], key="radar_filter")
+    signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"], key="ee_filter")
     
-    # 고유 버튼 작동
-    if st.button("🚀 실시간 수급 전광판 가동", key="btn_radar_trigger"):
+    if st.button("🚀 실시간 수급 전광판 가동", key="btn_ee_trigger"):
         if not final_codes:
             st.error("❌ 감시할 종목 코드가 지정되지 않았습니다.")
         else:
@@ -129,7 +125,6 @@ with tab1:
                 bulk_data = get_naver_bulk_investors(final_codes)
                 
                 panel_records = []
-                
                 for code in final_codes:
                     name = code_to_name_master.get(code, f"미등록({code})")
                     data = bulk_data.get(code)
@@ -175,12 +170,12 @@ with tab1:
 
 with tab2:
     st.markdown("### 🎯 관심 종목 1:1 입체 종합 진단")
-    target_input = st.text_input("분석할 종목코드 6자리를 적으세요:", value="267260", key="radar_target").strip().zfill(6)
+    target_input = st.text_input("분석할 종목코드 6자리를 적으세요:", value="267260", key="ee_target").strip().zfill(6)
     
     end_date = datetime.today()
     start_date = end_date - timedelta(days=60)
     
-    if st.button("🦅 이글아이 현미경 가동", key="btn_radar_micro"):
+    if st.button("🦅 이글아이 현미경 가동", key="btn_ee_micro"):
         stock_name = code_to_name_master.get(target_input, f"종목({target_input})")
         try:
             price_df = fdr.DataReader(target_input, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
