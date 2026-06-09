@@ -9,7 +9,7 @@ from datetime import datetime
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 자산 증식 레이더", page_icon="💸", layout="wide")
-st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.2)")
+st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.3)")
 st.caption("시장의 진짜 돈줄(거래대금)을 추적하고, 보조지표(RSI/이격도) 기반 단기 바닥 타점을 실시간 엄선합니다.")
 
 # 1. 거래소 전체 종목 매퍼 로드
@@ -127,7 +127,8 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
             for code in final_codes:
                 try:
                     data = live_data.get(code)
-                    if data is None or data["current"] == 0: continue
+                    if data is None or data["current"] == 0: 
+                        continue
                     
                     curr_price = data["current"]
                     prev_close = data["prev_close"]
@@ -136,3 +137,6 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
                     price_history[code].append(curr_price)
                     if len(price_history[code]) > 30:
                         price_history[code].pop(0)
+                        
+                    cond_money = trade_money >= min_money
+                    rsi_
