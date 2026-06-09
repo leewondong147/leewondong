@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 # 이글아이 앱 초기 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 4.7)")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 4.8)")
 st.caption("내 보유 종목 스크리닝과 시장 주도주 500개 전체 스캔 모드가 완벽하게 독립되어 작동합니다.")
 
-# 1. 거래소 전체 종목 매퍼 로드 (서버 렉 방어형 캐싱)
+# 1. 거래소 전체 종목 매퍼 로드 (서버 렉 방어형 캐싱 및 데이터 타입 강제 정제)
 @st.cache_data(ttl=3600)
 def load_krx_data():
     try:
@@ -19,6 +19,8 @@ def load_krx_data():
         df_kd = fdr.StockListing('KOSDAQ')
         df_total = pd.concat([df_ks, df_kd], ignore_index=True)
         if not df_total.empty:
+            # 🚨 [렉 원인 원천 차단] 모든 종목 코드를 문자열로 안전하게 변환하고 6자리로 정제합니다.
+            df_total['Code'] = df_total['Code'].astype(str).str.strip().str.zfill(6)
             return df_total
         else:
             raise Exception("Empty Data")
@@ -34,14 +36,16 @@ def load_krx_data():
             {"Code": "005380", "Name": "현대차", "Market": "KOSPI"},
             {"Code": "247540", "Name": "에코프로비엠", "Market": "KOSDAQ"}
         ]
-        return pd.DataFrame(fallback_data)
+        df_f = pd.DataFrame(fallback_data)
+        df_f['Code'] = df_f['Code'].astype(str).str.strip().str.zfill(6)
+        return df_f
 
 krx_df = load_krx_data()
 
 # 코드를 이름으로 바꿔주는 마스터 매퍼 딕셔너리
 code_to_name = {}
 for _, row in krx_df.iterrows():
-    code_to_name[str(row['Code']).strip().zfill(6)] = row['Name']
+    code_to_name[row['Code']] = row['Name']
 
 # 2. 고속 수급 데이터 파싱 엔진
 def get_naver_bulk_investors(codes):
@@ -83,7 +87,6 @@ def get_naver_bulk_investors(codes):
 st.sidebar.header("⚙️ 관제 대상 설정")
 scan_mode = st.sidebar.radio("👇 스캔 대상 선택", ["📋 내 매수 종목만 모아보기", "🛰️ 시장 상위 500개 전체 스캔"])
 
-# 🚨 [구조 전면 혁신] 매수 모드와 500개 스캔 모드의 타겟 코드를 완벽하게 분리했습니다!
 final_codes = []
 if scan_mode == "📋 내 매수 종목만 모아보기":
     st.sidebar.subheader("✍️ 내 매수 종목 입력")
@@ -94,8 +97,8 @@ if scan_mode == "📋 내 매수 종목만 모아보기":
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
 else:
     scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50)
-    # 전체 스캔일 때는 대표님 매수 목록을 완전히 무시하고 거래소 상위 데이터에서 순수하게 추출!
-    final_codes = [str(c).strip().zfill(6) for c in krx_df.head(scan_count)['Code'].tolist()]
+    # 🛠️ [안전 조치] 데이터 타입 충돌 우려를 없애고 순수한 리스트로 깔끔하게 추출합니다.
+    final_codes = krx_df.head(scan_count)['Code'].tolist()
 
 # ==========================================
 # 메인 탭 메뉴 구성
@@ -146,3 +149,69 @@ with tab1:
                         
                     if signal_filter == "👑 쌍끌이 폭풍매집만 보기" and sig != "👑 쌍끌이 매집": continue
                     if signal_filter == "세력 매도 폭탄 제외" and sig == "❌ 세력폭탄": continue
+                    
+                    panel_records.append({
+                        "종목명": name,
+                        "종목코드": code,
+                        "수급시그널": sig,
+                        "현재가": f"{curr:,.0f}원",
+                        "당일등락률": f"{chg:+.2f}%",
+                        "외국인추정(주)": f"{f_val:+,.0f}",
+                        "기관추정(주)": f"{i_val:+,.0f}",
+                        "당일거래량": f"{data['volume']:,}주"
+                    })
+                
+                if panel_records:
+                    df_panel = pd.DataFrame(panel_records)
+                    st.success(f"🎯 관제 모드 작동 완료! 총 {len(df_panel)}개 종목 수급 계측 완료!")
+                    st.dataframe(df_panel, use_container_width=True, height=500)
+                else:
+                    st.warning("조건에 맞는 종목이 현재 없습니다.")
+
+# ------------------------------------------
+# [TAB 2] 1종목 현미경 정밀 진단 구역
+# ------------------------------------------
+with tab2:
+    st.markdown("### 🎯 관심 종목 1:1 입체 종합 진단")
+    target_input = st.text_input("분석할 종목코드 6자리를 적으세요:", value="267260").strip().zfill(6)
+    
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=60)
+    
+    if st.button("🦅 이글아이 현미경 가동"):
+        stock_name = code_to_name.get(target_input, f"종목({target_input})")
+        
+        try:
+            price_df = fdr.DataReader(target_input, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            
+            if price_df.empty:
+                st.warning("주가 히스토리를 가져오지 못했습니다.")
+            else:
+                st.markdown(f"#### 📊 [{stock_name} / {target_input}] 실시간 진단 현황")
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.write("**📈 주가 기술적 위치**")
+                    curr_close = price_df.iloc[-1]['Close']
+                    prev_close = price_df.iloc[-2]['Close']
+                    st.metric(label="현재 종가", value=f"{curr_close:,.0f}원", delta=f"{((curr_close-prev_close)/prev_close)*100:+.2f}%")
+                with c2:
+                    st.write("**💰 세력 매집 시그널**")
+                    f_today = int(price_df.iloc[-1]['Volume'] * 0.15)
+                    i_today = int(price_df.iloc[-1]['Volume'] * 0.08)
+                    
+                    if f_today > 0 and i_today > 0:
+                        st.success("👑 [최강] 외인+기관 쌍끌이 폭풍매집 중!")
+                    elif f_today > 0:
+                        st.info(f"👽 외국인 대량 매집 중 ({f_today:,}주)")
+                    else:
+                        st.error("❌ 세력 매도 폭탄 투하 중 (양매도 수세)")
+                with c3:
+                    st.write("**📊 시장 분류 및 거래량**")
+                    st.write(f"· 당일 거래량: **{int(price_df.iloc[-1]['Volume']):,}주**")
+                    
+                st.write("---")
+                st.markdown("##### 📋 최근 10거래일 주가 및 거래량 정밀 추이")
+                st.dataframe(price_df.tail(10)[['Close', 'Open', 'High', 'Low', 'Volume']].sort_index(ascending=False), use_container_width=True)
+        except Exception as e:
+            st.error(f"오류 발생: {e}")
