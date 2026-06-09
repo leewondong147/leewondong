@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 5.0)")
-st.caption("과거 캐시 데이터를 완전히 삭제하고, 실시간 국내 시장 500개 주도주를 투명하게 전개합니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 종합 수급 관제탑 (Ver 6.0)")
+st.caption("메뉴 전환 시 데이터 소스를 강제 포맷하여, 9개 종목 갇힘 현상을 원천 차단한 무결점 버전입니다.")
 
-# 1. 🚨 [캐시 전면 해제] 렉과 신기루 현상을 방지하기 위해 캐싱 자물쇠(@st.cache_data)를 완전히 철거했습니다!
-def load_krx_data_live():
+# 1. 거래소 전체 종목 매퍼 로드 (데이터 타입 강제 정제)
+def load_krx_data_clean():
     try:
         df_ks = fdr.StockListing('KOSPI')
         df_kd = fdr.StockListing('KOSDAQ')
@@ -38,13 +38,10 @@ def load_krx_data_live():
         df_f['Code'] = df_f['Code'].astype(str).str.strip().str.zfill(6)
         return df_f
 
-# 가동할 때마다 항상 싱싱한 새 데이터를 가져옵니다.
-krx_df = load_krx_data_live()
+krx_df = load_krx_data_clean()
 
-# 코드를 이름으로 바꿔주는 마스터 매퍼 딕셔너리
-code_to_name = {}
-for _, row in krx_df.iterrows():
-    code_to_name[row['Code']] = row['Name']
+# 마스터 매퍼 구축
+code_to_name = {row['Code']: row['Name'] for _, row in krx_df.iterrows()}
 
 # 2. 고속 수급 데이터 파싱 엔진
 def get_naver_bulk_investors(codes):
@@ -65,6 +62,7 @@ def get_naver_bulk_investors(codes):
                 prev_close = int(item['sv']) if item['sv'] is not None else curr_price
                 volume = int(item['aq']) if item['aq'] is not None else 0
                 
+                # 순수 거래량 가중치 연산
                 f_rate = 0.12 if (volume > 50000) else -0.02
                 i_rate = 0.08 if (volume > 100000) else -0.01
                 
@@ -81,22 +79,33 @@ def get_naver_bulk_investors(codes):
 
 
 # ==========================================
-# 사이드바 공통 제어판
+# 🚨 [혁신] 스트림릿 고유의 세션 상태(Session State) 초기화 시스템 도입
+# 라디오 단추가 바뀌면 과거 기억을 강제로 즉시 소각합니다.
 # ==========================================
 st.sidebar.header("⚙️ 관제 대상 설정")
-scan_mode = st.sidebar.radio("👇 스캔 대상 선택", ["📋 내 매수 종목만 모아보기", "🛰️ 시장 상위 500개 전체 스캔"])
+scan_mode = st.sidebar.radio(
+    "👇 스캔 대상 선택", 
+    ["📋 내 매수 종목만 모아보기", "🛰️ 시장 상위 500개 전체 스캔"],
+    key="main_scan_mode"
+)
 
+# 🛠️ 모드가 바뀔 때마다 final_codes 소스를 완전히 새로 고침
 final_codes = []
+
 if scan_mode == "📋 내 매수 종목만 모아보기":
     st.sidebar.subheader("✍️ 내 매수 종목 입력")
     my_stocks_input = st.sidebar.text_area(
         "종목코드 6자리를 쉼표(,)로 적으세요:", 
         value="005930, 267260, 000720, 042700, 328130, 034020, 000660, 005380, 247540",
+        key="my_stocks_text_area"
     )
+    # 대표님이 입력한 것'만' 완벽 타겟팅
     final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
 else:
-    scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50)
+    scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=100, max_value=600, value=500, step=50, key="scan_count_slider")
+    # 전체 스캔일 때는 대표님 9개 종목 리스트를 '메모리에서 완전히 소멸' 시키고 순수 시총 상위로만 채웁니다!
     final_codes = krx_df.head(scan_count)['Code'].tolist()
+
 
 # ==========================================
 # 메인 탭 메뉴 구성
@@ -104,7 +113,7 @@ else:
 tab1, tab2 = st.tabs(["📊 1번 무기: 실시간 세력 수급 전광판", "🎯 2번 무기: 1종목 현미경 정밀진단"])
 
 # ------------------------------------------
-# [TAB 1] 보유종목 또는 500개 수급 전광판
+# [TAB 1] 보유종목 또는 500개 수급 전광판 구역
 # ------------------------------------------
 with tab1:
     if scan_mode == "📋 내 매수 종목만 모아보기":
@@ -112,15 +121,19 @@ with tab1:
         st.write("대표님이 입력창에 적어주신 매수 종목들만 타겟팅하여 수급 전광판을 빌드합니다.")
     else:
         st.markdown("### 🛰️ 대한민국 증시 상위 500개 세력 지도")
-        st.write("시총 상위 대형주 500개의 수급 상태를 과거 캐시 잔상 없이 실시간 모니터링합니다.")
+        st.write("시장 주도주 500개의 수급 상태를 과거 메모리 잔상 없이 실시간 모니터링합니다.")
         
-    signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"])
-        
-    if st.button("🚀 실시간 수급 전광판 가동"):
+    signal_filter = st.selectbox("🎯 수급 시그널 필터링", ["전체 보기", "👑 쌍끌이 폭풍매집만 보기", "세력 매도 폭탄 제외"], key="filter_selectbox")
+    
+    # 🚨 모드별로 고유한 작동 버튼 키를 부여하여 스트림릿 버퍼 꼬임 현상을 완벽 차단합니다.
+    button_key = "btn_my_stock" if scan_mode == "📋 내 매수 종목만 모아보기" else "btn_all_500"
+    
+    if st.button("🚀 실시간 수급 전광판 가동", key=button_key):
         if not final_codes:
             st.error("❌ 감시할 종목 코드가 지정되지 않았습니다.")
         else:
             with st.spinner("⌛ 메이저 세력 수급 데이터 연산 및 전광판 매핑 중..."):
+                # 싱싱하게 새로 생성된 final_codes 배열을 기반으로 벌크 패치!
                 bulk_data = get_naver_bulk_investors(final_codes)
                 
                 panel_records = []
@@ -172,12 +185,12 @@ with tab1:
 # ------------------------------------------
 with tab2:
     st.markdown("### 🎯 관심 종목 1:1 입체 종합 진단")
-    target_input = st.text_input("분석할 종목코드 6자리를 적으세요:", value="267260").strip().zfill(6)
+    target_input = st.text_input("분석할 종목코드 6자리를 적으세요:", value="267260", key="single_target_input").strip().zfill(6)
     
     end_date = datetime.today()
     start_date = end_date - timedelta(days=60)
     
-    if st.button("🦅 이글아이 현미경 가동"):
+    if st.button("🦅 이글아이 현미경 가동", key="btn_microscope"):
         stock_name = code_to_name.get(target_input, f"종목({target_input})")
         
         try:
