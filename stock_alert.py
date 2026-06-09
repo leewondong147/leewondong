@@ -9,7 +9,7 @@ from datetime import datetime
 # 앱 아이콘 및 탭 제목 설정
 # ==========================================
 st.set_page_config(page_title="이원동 자산 증식 레이더", page_icon="💸", layout="wide")
-st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.0)")
+st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 10.1)")
 st.caption("시장의 진짜 돈줄(거래대금)을 추적하고, 보조지표(RSI/이격도) 기반 단기 바닥 타점을 실시간 엄선합니다.")
 
 # 1. 거래소 전체 종목 매퍼 로드
@@ -31,7 +31,7 @@ def load_krx_mapper():
 
 code_to_name_map, raw_df = load_krx_mapper()
 
-# 2. 자체 RSI 보조지표 계산 함수 (데이터 누락 및 에러 원천 차단)
+# 2. 자체 RSI 보조지표 계산 함수
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50 # 데이터 부족 시 중간값 반환
@@ -153,31 +153,18 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작"):
                         else:
                             signal_type = "🛡️ [타점] 과매도 바닥눌림"
                             
-                        if not any(e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원" for e in detected_events if 'detected_events' in locals() else []):
-                            if not any(e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원" for e in detected_signals):
-                                detected_signals.insert(0, {
-                                    "포착시간": now_time,
-                                    "시그널": signal_type,
-                                    "종목명": stock_name,
-                                    "현재가": f"{curr_price:,.0f}원",
-                                    "당일변동률": f"{change_rate:+.2f}%",
-                                    "당일거래대금": f"{int(trade_money):,}억",
-                                    "RSI지표": f"{round(rsi_val, 1)}",
-                                    "이격수준": f"{round(disparity_val, 1)}%"
-                                })
-                                if "👑" in signal_type: st.balloons()
-                except:
-                    continue
-            
-            if detected_signals:
-                df_disp = pd.DataFrame(detected_signals)
-                with grid_container:
-                    st.error("🚨 [실전 매매 포착: 진짜 돈이 몰리는 주도주 및 급락 눌림목 타점 목록] 🚨")
-                    st.dataframe(df_disp, use_container_width=True)
-            else:
-                with grid_container:
-                    st.info(f"📡 현재 당일 거래대금 {min_money}억 이상 터지거나 과매도 바닥 조건에 걸린 알짜 종목이 없습니다. 탐색 회전 지속 중...")
-                    
-            time.sleep(check_interval)
-        except Exception as e:
-            time.sleep(5)
+                        # 🚨 [깔끔하게 수정 완료] 복잡한 구문 대신 가장 안정적인 중복 검증 로직으로 변경했습니다.
+                        is_duplicate = False
+                        for e in detected_signals:
+                            if e['종목명'] == stock_name and e['현재가'] == f"{curr_price:,.0f}원":
+                                is_duplicate = True
+                                break
+                                
+                        if not is_duplicate:
+                            detected_signals.insert(0, {
+                                "포착시간": now_time,
+                                "시그널": signal_type,
+                                "종목명": stock_name,
+                                "현재가": f"{curr_price:,.0f}원",
+                                "당일변동률": f"{change_rate:+.2f}%",
+                                "당일거래대금": f"{int(trade_money):
