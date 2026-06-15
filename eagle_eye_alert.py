@@ -2,17 +2,18 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+import FinanceDataReader as fdr  # 🚨 과거 데이터 조회를 위해 fdr 라이브러리 추가 필수!
 
 # ==========================================
-# 앱 아이콘 및 탭 제목 설정 (Ver 11.0 종결판)
+# 앱 아이콘 및 탭 제목 설정 (Ver 12.0 RSI 완결판)
 # ==========================================
 st.set_page_config(page_title="이원동 자산 증식 레이더", page_icon="💸", layout="wide")
-st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 11.0)")
-st.caption("외부 라이브러리 에러로 인한 9개 종목 갇힘 현상을 원천 차단하고, 실시간 네이버 거래량 탑 우량주들의 타점을 계측합니다.")
+st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 12.0)")
+st.caption("RSI 50 고정 버그를 완벽하게 수리하고, 과거 데이터를 동기화하여 정확한 실시간 과매도 타점을 계측합니다.")
 
-# 1. 🚨 [버그 원천 차단] fdr 라이브러리 에러 리스크 완벽 제거! 
-# 네이버 실시간 거래량/거래대금 최상위 대형주들을 다이렉트로 고속 크롤링합니다.
+# 1. 네이버 실시간 거래량/거래대금 최상위 대형주 자동 크롤링
+@st.cache_data(ttl=3600)
 def get_naver_top_market_codes(count=500):
     codes = []
     names = {}
@@ -20,11 +21,9 @@ def get_naver_top_market_codes(count=500):
     
     for market_type in ["KOSPI", "KOSDAQ"]:
         try:
-            # 네이버 실시간 탑 랭킹 API 접근
             res = requests.get(f"https://polling.finance.naver.com/api/realtime?query=SERVICE_MARKET:{market_type}_SUM", headers=headers, timeout=5)
             data = res.json()
             items = data['result']['areas'][0]['datas']
-            
             for item in items:
                 c_str = str(item['cd']).strip().zfill(6)
                 codes.append(c_str)
@@ -32,13 +31,12 @@ def get_naver_top_market_codes(count=500):
         except:
             pass
             
-    # 통신 장애 대비용 대한민국 초우량 30대 기업 마스터 코드 자동 확보
     fallback_heavy = [
         ("005930", "삼성전자"), ("000660", "SK하이닉스"), ("267260", "HD현대일렉트릭"),
         ("042700", "한미반도체"), ("034020", "두산에너빌리티"), ("000720", "현대건설"),
         ("328130", "루닛"), ("005380", "현대차"), ("247540", "에코프로비엠"),
         ("068270", "셀트리온"), ("005490", "POSCO홀딩스"), ("035420", "NAVER"),
-        ("003670", "포스코푸처엠"), ("051910", "LG화학"), ("035720", "카카오"),
+        ("003670", "포스코퓨처엠"), ("051910", "LG화학"), ("035720", "카카오"),
         ("012330", "현대모비스"), ("066570", "LG전자"), ("000270", "기아"),
         ("096770", "SK이노베이션"), ("032830", "삼성생명"), ("086520", "에코프로"),
         ("006400", "삼성SDI"), ("373220", "LG에너지솔루션"), ("207940", "삼성바이오로직스")
@@ -51,20 +49,40 @@ def get_naver_top_market_codes(count=500):
         
     return codes[:count], names
 
-# 실시간 관제 대상 종목 자동 풀 로드
 final_market_codes, code_to_name_map = get_naver_top_market_codes(500)
 
-# 2. 자체 RSI 보조지표 연산 엔진
+# 🚨 [핵심 엔진 추가] RSI 예열용 과거 주가 데이터 고속 다운로드 기능
+@st.cache_data(ttl=3600)
+def preload_historical_prices(codes):
+    hist_dict = {}
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=40) # 최근 약 30거래일 데이터 확보
+    for code in codes:
+        try:
+            df = fdr.DataReader(code, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            hist_dict[code] = df['Close'].tolist()
+        except:
+            hist_dict[code] = []
+    return hist_dict
+
+# 2. 자체 RSI 보조지표 연산 엔진 (안전성 강화)
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
-        return 50  # 데이터 축적 전에는 중간값 유지
+        return 50.0
+    
     df = pd.DataFrame(prices, columns=['close'])
     delta = df['close'].diff()
+    
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    
+    # 분모가 0일 경우(계속 가격이 같을 경우)의 에러를 방지합니다.
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    return rsi.iloc[-1] if not rsi.empty else 50
+    
+    # 결측치(NaN)가 발생하면 기본적으로 과매수(100)로 쳐서 방어합니다.
+    rsi = rsi.fillna(100.0) 
+    return rsi.iloc[-1]
 
 # 3. 네이버 금융 실시간 멀티 데이터 수집 엔진
 def get_naver_advanced_data(codes):
@@ -133,15 +151,16 @@ check_interval = st.sidebar.slider("⏱️ 레이더 회전 주기 (초 단위)"
 st.subheader("🛰️ 주도주 돈줄 추적 & 과매도 타점 연산 가동")
 st.write(f"📢 현재 **{len(final_codes)}개 종목**의 실시간 거래대금 스파이크 현황과 RSI 가격 왜곡 현상을 무결점으로 동시 추적합니다.")
 
-# 버튼 키 꼬임 방지를 위한 유니크 키 적용
 if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작", key="btn_radar_run"):
-    st.info("⚡ 메인 광통신망에 직결되었습니다. 돈의 흐름과 가격 바닥 신호를 실시간 추적합니다.")
+    # 🚨 RSI를 위한 과거 데이터 사전 장착 (캐싱되어 있으므로 최초 1회만 약 10~30초 소요됩니다)
+    with st.spinner("⌛ RSI 엔진 예열 중... 과거 30일치 주가 데이터를 동기화하고 있습니다. 잠시만 기다려주세요."):
+        historical_db = preload_historical_prices(final_codes)
+        
+    st.info("⚡ 메인 광통신망 직결 완료! 돈의 흐름과 가격 바닥 신호를 실시간 추적합니다.")
     
     log_area = st.empty()
     grid_container = st.empty()
     
-    # 🚨 메모리 꼬임 방지를 위한 실시간 리스트 포맷
-    price_history = {code: [] for code in final_codes}
     detected_signals = []
 
     while True:
@@ -162,20 +181,18 @@ if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작", key="btn_r
                     prev_close = data["prev_close"]
                     trade_money = data["trade_value_eok"]
                     
-                    # 실시간 타점용 주가 틱 축적
-                    price_history[code].append(curr_price)
-                    if len(price_history[code]) > 30:
-                        price_history[code].pop(0)
-                        
+                    # 🛠️ 수리 완료: 과거 30일치 종가 리스트 끝에 '현재 실시간 가격'을 합쳐 완벽한 당일 RSI를 도출합니다.
+                    base_history = historical_db.get(code, [])[-30:] 
+                    temp_prices = base_history + [curr_price]
+                    
                     cond_money = trade_money >= min_money
-                    rsi_val = calculate_rsi(price_history[code])
-                    disparity_val = (curr_price / prev_close) * 100
+                    rsi_val = calculate_rsi(temp_prices)
+                    disparity_val = (curr_price / prev_close) * 100 if prev_close > 0 else 100.0
                     cond_bottom = (rsi_val <= rsi_limit) or (disparity_val <= disparity_limit)
                     
-                    # 🛠️ [조건 완벽 분리] 9개 고정 늪을 빠져나와 실시간 필터 가동
                     if cond_money or cond_bottom:
                         stock_name = code_to_name_map.get(code, f"우량주({code})")
-                        change_rate = ((curr_price - prev_close) / prev_close) * 100
+                        change_rate = ((curr_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
                         
                         if cond_money and cond_bottom:
                             signal_type = "👑 [지존] 대금폭발+바닥눌림"
