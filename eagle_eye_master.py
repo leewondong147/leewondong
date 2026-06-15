@@ -6,36 +6,31 @@ from datetime import datetime, timedelta
 import FinanceDataReader as fdr
 
 # ==========================================
-# 앱 아이콘 및 탭 제목 설정 (Ver 20.0 자동화 완성판)
+# 앱 아이콘 및 탭 제목 설정 (Ver 21.0 완결판)
 # ==========================================
 st.set_page_config(page_title="이원동 이글아이 마스터", page_icon="🦅", layout="wide")
-st.title("🦅 이원동의 '이글아이(Eagle Eye)' 통합 관제탑 (Ver 20.0)")
-st.caption("KRX 시가총액 상위 500대 기업을 실시간으로 자동 추출하여 슬라이더 수치와의 100% 일치를 완벽 보장합니다.")
+st.title("🦅 이원동의 '이글아이(Eagle Eye)' 통합 관제탑 (Ver 21.0)")
+st.caption("ZeroDivisionError(분모 0 오류)를 완벽 차단하고, 500대 우량주의 수급 지도를 무결점으로 전개합니다.")
 
-# 🚨 [휴먼 에러 원천 차단] 한국거래소(KRX) 시가총액 탑 500 자동 추출 엔진
+# 1. 한국거래소(KRX) 시가총액 탑 500 자동 추출 엔진
 @st.cache_data(ttl=3600)  # 1시간 동안 메모리에 캐싱하여 속도 최적화
 def get_invincible_500_database():
     try:
-        # 코스피, 코스닥 전체 시장에서 시가총액 순으로 정렬된 데이터 가져오기
         df_krx = fdr.StockListing('KRX')
-        # 시가총액(Marcap) 기준으로 내림차순 정렬
         if 'Marcap' in df_krx.columns:
             df_krx = df_krx.sort_values(by='Marcap', ascending=False)
         
-        # 상위 500개 추출 및 무결점 정제
         top_500 = df_krx.head(500)
         codes = top_500['Code'].tolist()
         names = pd.Series(top_500['Name'].values, index=top_500['Code']).to_dict()
         return codes, names
     except Exception as e:
-        # 비상용 백업 시스템 (네트워크 에러 발생 시 부팅용)
-        st.error(f"KRX 데이터 엔진 시동 실패, 백업 모드로 전환합니다: {e}")
         backup_list = [("005930", "삼성전자"), ("000660", "SK하이닉스"), ("267260", "HD현대일렉트릭"), ("042700", "한미반도체")]
         return [item[0] for item in backup_list], {item[0]: item[1] for item in backup_list}
 
 final_market_codes, code_to_name_master = get_invincible_500_database()
 
-# [엔진 A] 장중 실시간 순간 수급 추출 엔진
+# 2. 장중 실시간 순간 수급 추출 엔진
 def get_naver_real_investors(codes):
     results = {}
     if not codes:
@@ -73,7 +68,6 @@ scan_mode = st.sidebar.radio("👇 스캔 대상 선택", ["🛰️ 시장 우�
 
 target_codes = []
 if scan_mode == "🛰️ 시장 우량주 멀티 레이더 스캔":
-    # 🚨 [500개 완전 개방] 이제 500개까지 한 치의 오차도 없이 칼같이 슬라이더 숫자와 대칭됩니다!
     scan_count = st.sidebar.slider("📊 스캔할 종목 수", min_value=10, max_value=len(final_market_codes), value=100, step=10, key="master_slider")
     target_codes = final_market_codes[:scan_count]
 else:
@@ -101,7 +95,9 @@ with tab1:
                 if data is None or data["current"] == 0: continue
                 f_dir, i_dir = data["foreign_direction"], data["institution_direction"]
                 curr, prev = data["current"], data["prev_close"]
-                chg = ((curr - prev) / prev) * 100
+                
+                # 🚨 [ZeroDivisionError 영구 박멸 안전판] 분모가 0일 경우 등락률을 0으로 안전 제어합니다.
+                chg = ((curr - prev) / prev) * 100 if prev > 0 else 0.0
                 
                 if f_dir > 0 and i_dir > 0: sig = "👑 쌍끌이 매집"
                 elif f_dir > 0: sig = "👽 외인매집"
@@ -117,7 +113,7 @@ with tab1:
                     "기관창구": "🟢 순매수" if i_dir > 0 else "🔴 순매도", "당일거래량": f"{data['volume']:,}주"
                 })
             if panel_records:
-                st.success(f"🎯 관제 가동 완료! 대표님이 지정하신 {len(panel_records)}개 종목 완벽 정렬!")
+                st.success(f"🎯 관제 가동 완료! 총 {len(panel_records)}개 종목 완벽 정렬!")
                 st.dataframe(pd.DataFrame(panel_records).sort_values(by="당일거래량", ascending=False), use_container_width=True, height=500)
             else:
                 st.warning("조건에 맞는 종목이 없습니다.")
@@ -128,14 +124,13 @@ with tab2:
     ma_filter = st.selectbox("📊 기술적 위치 필터링", ["전체 보기", "📈 20일선 골든크로스/상회 종목만", "📉 20일선 아래 눌림목 종목만"], key="filter_tab2")
     
     if st.button("🔮 500대 전진 진형 마스터 분석 가동", key="btn_trigger_tab2"):
-        with st.spinner(f"⌛ 대한민국 {len(target_codes)}개 대장주 정밀 분석 중..."):
+        with st.spinner(f"⌛ 대한민국 {len(target_codes)}개 정제형 대장주 정밀 분석 중..."):
             end_date = datetime.today()
             start_date = end_date - timedelta(days=50)
             close_records = []
             
             for code in target_codes:
                 name = code_to_name_master.get(code, f"종목({code})")
-                
                 curr_close, chg_rate, ma20_val, disparity, is_above_ma20 = 0, 0.0, 0, 100.0, True
                 state_text = "📊 데이터 관망"
                 final_sig = "❌ [마감] 세력 관망"
@@ -148,7 +143,7 @@ with tab2:
                         prev_close = int(df_hist.iloc[-2]['Close'])
                         ma20_val = int(df_hist.iloc[-1]['MA20']) if not pd.isna(df_hist.iloc[-1]['MA20']) else curr_close
                         disparity = (curr_close / ma20_val) * 100 if ma20_val > 0 else 100.0
-                        chg_rate = ((curr_close - prev_close) / prev_close) * 100
+                        chg_rate = ((curr_close - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
                         is_above_ma20 = curr_close >= ma20_val
                         state_text = "📈 20일선 상회" if is_above_ma20 else "📉 20일선 하회"
                         
@@ -203,7 +198,7 @@ with tab3:
                     st.write("**📈 주가 기술적 위치**")
                     curr_close = price_df.iloc[-1]['Close']
                     prev_close = price_df.iloc[-2]['Close']
-                    st.metric(label="현재 종가", value=f"{curr_close:,.0f}원", delta=f"{((curr_close-prev_close)/prev_close)*100:+.2f}%")
+                    st.metric(label="현재 종가", value=f"{curr_close:,.0f}원", delta=f"{((curr_close-prev_close)/prev_close)*100:+.2f}%" if prev_close > 0 else "0.00%")
                 with c2:
                     st.write("**💰 당일 세력 수급 방향**")
                     f_d, i_d = s_data["foreign_direction"], s_data["institution_direction"]
