@@ -62,4 +62,236 @@ def get_robust_top_500_codes():
         ("215600","신흥에스이씨"), ("218410","RFHIC"), ("222800","심텍"), ("235980","메드팩토"),
         ("240810","원익IPS"), ("243840","에스퓨얼셀"), ("253450","스튜디오드래곤"), ("263750","펄어비스"),
         ("278280","천보"), ("287410","제이시스메디칼"), ("290650","엘앤씨바이오"), ("293490","카카오게임즈"),
-        ("294090","이오플로우"), ("319660","피에스케이
+        ("294090","이오플로우"), ("319660","피에스케이홀딩스"), ("323990","박셀바이오"), ("330590","원티드랩"),
+        ("336370","솔루스첨단소재"), ("348210","넥스틴"), ("357780","솔브레인"), ("386580","엔켐"),
+        ("396690","에코프로에이치엔"), ("001520","동양"), ("001740","SK네트웍스"), ("002020","코오롱"),
+        ("002380","KCC"), ("004000","롯데정밀화학"), ("004990","롯데지주"), ("005300","롯데칠성"),
+        ("005430","한국공항"), ("006120","SK디스커버리"), ("008770","호텔신라"), ("009970","영원무역"),
+        ("010060","OCI"), ("010140","삼성중공업"), ("010620","HD현대미포"), ("011210","현대위아"),
+        ("014820","동원시스템즈"), ("017800","현대엘리베이"), ("026960","동서"), ("029780","삼성카드"),
+        ("031600","디엔에프"), ("036460","한국가스공사"), ("047040","대우건설"), ("047810","한국항공우주"),
+        ("069960","현대백화점"), ("073240","금호타이어"), ("081660","휠라홀딩스"), ("111770","영원무역홀딩스"),
+        ("120110","코오롱인더"), ("175330","JB금융지주"), ("251270","넷마블"), ("323410","카카오뱅크"),
+        ("000020","동화약품"), ("000040","KR모터스"), ("000050","경방"), ("000070","삼양홀딩스"),
+        ("000120","대한통운"), ("000140","하이트진로홀딩스"), ("000180","성창기업지주"), ("000220","유유제약"),
+        ("000230","일동홀딩스"), ("000240","한국앤컴퍼니"), ("000250","삼천당제약"), ("000300","대유플러스"),
+        ("000320","노루홀딩스"), ("000370","한화손해보험"), ("000390","삼화페인트"), ("000440","중앙에너비스"),
+        ("000480","조선내화"), ("000490","대동"), ("000500","가온전선"), ("000520","삼일제약"),
+        ("000540","흥국화재"), ("000590","CS홀딩스"), ("000640","동아쏘시오홀딩스"), ("000650","천일고속"),
+        ("000670","영풍"), ("000680","LS네트웍스"), ("000700","유수홀딩스"), ("000760","이화산업"),
+        ("000850","화천기공"), ("000860","건설화학"), ("000890","보해양조"), ("000910","성신양회"),
+        ("000950","전방"), ("000970","한국주철관"), ("000990","동부하이텍"), ("001020","페이퍼코리아"),
+        ("001060","JW중외제약"), ("001070","대한방직"), ("001080","만호제강"), ("001130","대한제분"),
+        ("001140","국보"), ("001190","주성엔지니어링"), ("001200","유진기업"), ("001210","한국전력공사"),
+        ("001250","GS글로벌"), ("001260","남광토건"), ("001270","부국증권"), ("001290","골든브릿지증권"),
+        ("001340","백광산업"), ("001360","디아이"), ("001370","BC월드제약"), ("001380","SG글로벌"),
+        ("001390","KG케미칼"), ("001420","태원물산"), ("001440","대한전선"), ("001470","삼부토건"),
+        ("001500","현대차증권"), ("001510","SK증권"), ("001530","DI동일"), ("001550","조비"),
+        ("001560","제일연마"), ("001570","금양"), ("001600","서광건설"), ("001620","케이비아이동국실업"),
+        ("001630","종근당홀딩스"), ("001680","대상"), ("001720","신세계건설"), ("001750","한양증권"),
+        ("001770","SH에너지화학"), ("001780","알루코"), ("001790","대한제당"), ("001800","삼호개발"),
+        ("001820","삼화콘덴서"), ("001880","DL건설"), ("001940","KISCO홀딩스"), ("001950","한프"),
+        ("001970","신성통상"), ("002000","한국종합기술"), ("002030","아세아"), ("002070","남영비비안"),
+        ("002100","경농"), ("002140","고려산업"), ("002170","삼양통상"), ("002200","한국수출포장"),
+        ("002210","동성제약"), ("002220","한일철강"), ("002240","STX"), ("002250","오리엔트바이오"),
+        ("002270","롯데푸드"), ("002300","한국카본"), ("002310","아세아시멘트"), ("002320","한진"),
+        ("002350","넥센타이어"), ("002360","SHD"), ("002390","한독"), ("002410","범양건영"),
+        ("002420","세기상사"), ("002450","제일약품"), ("002460","화성산업"), ("002600","하이록코리아"),
+        ("002620","제일파마홀딩스"), ("002630","오리엔탈정공"), ("002680","한익스프레스"), ("002690","동일제강"),
+        ("002700","신일전자"), ("002710","TCC스틸"), ("002720","국동"), ("002760","보령"),
+        ("002780","진흥기업"), ("002810","삼영무역"), ("002820","포스코ICT"), ("002840","미원상사"),
+        ("002880","대유에이텍"), ("002900","동양물산"), ("002920","유성기업"), ("002960","한국팰릿풀"),
+        ("003010","혜인"), ("003030","세아제강지주"), ("003060","에이엔피"), ("003070","코오롱글로벌"),
+        ("003080","조선선재"), ("003120","온셀텍"), ("003160","디아이씨"), ("003200","일신방직"),
+        ("003220","대원제약"), ("003250","다스코"), ("003280","흥아해운"), ("003300","한일시멘트"),
+        ("003350","한국금융지주우"), ("003460","계룡건설"), ("003470","유안타증권"), ("003480","한진중공업"),
+        ("003520","영진약품"), ("003530","한화투자증권"), ("003540","대신증권"), ("003560","IHQ"),
+        ("003570","SJM홀딩스"), ("003580","넥센"), ("003610","방림"), ("003650","미창석유"),
+        ("003680","한성기업"), ("003690","코리안리"), ("003720","삼영전자"), ("003780","진양홀딩스"),
+        ("003830","대한화섬"), ("003850","보락"), ("003920","남양유업"), ("003960","사조대림"),
+        ("004060","SG세계물산"), ("004080","신화실업"), ("004090","한국석유"), ("004100","태양금속"),
+        ("004130","대원강업"), ("004140","동화약품우"), ("004150","한솔홀딩스")
+    ]
+    codes = [item[0] for item in pure_500]
+    names = {item[0]: item[1] for item in pure_500}
+    return codes[:500], names
+
+final_market_codes, code_to_name_map = get_robust_top_500_codes()
+
+# 2. RSI 예열용 과거 주가 데이터 다운로드
+@st.cache_data(ttl=3600)
+def preload_historical_prices(codes):
+    hist_dict = {}
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=40)
+    for code in codes:
+        try:
+            df = fdr.DataReader(code, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            hist_dict[code] = df['Close'].tolist()
+        except:
+            hist_dict[code] = []
+    return hist_dict
+
+# 3. 실시간 다이내믹 RSI 연산 엔진 (괄호 수리 완료)
+def calculate_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return 50.0
+    df = pd.DataFrame(prices, columns=['close'])
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.fillna(50.0) 
+    return rsi.iloc[-1]
+
+# 4. 네이버 금융 실시간 거래대금 수집 엔진
+def get_naver_advanced_data(codes):
+    results = {}
+    if not codes:
+        return results
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    try:
+        chunks = [codes[i:i + 50] for i in range(0, len(codes), 50)]
+        for chunk in chunks:
+            chunk_str = ",".join(chunk)
+            res = requests.get(f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{chunk_str}", headers=headers, timeout=5)
+            data = res.json()
+            items = data['result']['areas'][0]['datas']
+            for item in items:
+                code = item['cd']
+                current_price = int(item['nv']) if item['nv'] is not None else 0
+                prev_close = int(item['sv']) if item['sv'] is not None else current_price
+                volume = int(item['aq']) if item['aq'] is not None else 0
+                trade_value_eok = int(item['aa']) / 100000000 if item['aa'] is not None else 0
+                
+                results[code] = {
+                    "current": current_price,
+                    "prev_close": prev_close,
+                    "volume": volume,
+                    "trade_value_eok": trade_value_eok
+                }
+            time.sleep(0.04)
+    except:
+        pass
+    return results
+
+# ==========================================
+# ⚙️ 제어판 (사이드바 전략 설정 시스템)
+# ==========================================
+st.sidebar.header("⚙️ 전략 필터 시스템")
+
+watch_mode = st.sidebar.radio("👇 감시 대상 선택", ["🛰️ 시장 상위 대형주 스캔", "📋 내 관심/보유 종목 지정 감시"], key="radar_mode")
+
+final_codes = []
+if watch_mode == "🛰️ 시장 상위 대형주 스캔":
+    scan_limit = st.sidebar.slider("📊 스캔할 종목 수", min_value=50, max_value=500, value=200, step=50, key="radar_limit")
+    final_codes = final_market_codes[:scan_limit]
+else:
+    st.sidebar.subheader("✍️ 내 관심 종목 입력")
+    my_stocks_input = st.sidebar.text_area(
+        "감시할 보유/관심 종목코드 입력 (쉼표 구분):", 
+        value="005930, 267260, 000720, 042700, 328130, 034020",
+        key="radar_text_area"
+    )
+    final_codes = [c.strip().zfill(6) for c in my_stocks_input.split(",") if c.strip()]
+
+st.sidebar.write("---")
+st.sidebar.subheader("🔥 1번 전략: 거래대금 폭발 조건")
+min_money = st.sidebar.number_input("💸 당일 거래대금 기준 (억원 이상)", min_value=10, max_value=5000, value=500, step=50, key="radar_min_money")
+
+st.sidebar.write("---")
+st.sidebar.subheader("🛡️ 2번 전략: 눌림목 바닥 조건")
+rsi_limit = st.sidebar.slider("📉 RSI 과매도 기준치 (이하)", min_value=20, max_value=45, value=35, key="radar_rsi")
+disparity_limit = st.sidebar.slider("🎯 당일 변동폭 하한선 (몇 % 이하 급락?)", min_value=80.0, max_value=99.0, value=95.0, key="radar_disp")
+
+check_interval = st.sidebar.slider("⏱️ 레이더 회전 주기 (초 단위)", min_value=5, max_value=120, value=10, key="radar_interval")
+
+# ==========================================
+# 메인 레이더 관제창
+# ==========================================
+st.subheader("🛰️ 주도주 돈줄 추적 & 과매도 타점 연산 가동")
+st.write(f"📢 현재 **{len(final_codes)}개 종목**의 실시간 거래대금 스파이크 현황과 RSI 가격 왜곡 현상을 무결점으로 동시 추적합니다.")
+
+if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작", key="btn_radar_run"):
+    with st.spinner(f"⌛ RSI 엔진 예열 중... 내장형 500대 DB 가동 완료. 과거 데이터를 동기화합니다."):
+        historical_db = preload_historical_prices(final_codes)
+        
+    st.info("⚡ 메인 광통신망 직결 완료! 돈의 흐름과 가격 바닥 신호를 실시간 추적합니다.")
+    
+    log_area = st.empty()
+    grid_container = st.empty()
+    
+    detected_signals = []
+
+    while True:
+        now_time = datetime.now().strftime('%H:%M:%S')
+        with log_area:
+            st.write(f"🔄 [{now_time}] 세력 거래대금 유입량 및 보조지표 바닥 매칭 연산 중...")
+
+        try:
+            live_data = get_naver_advanced_data(final_codes)
+            
+            for code in final_codes:
+                try:
+                    data = live_data.get(code)
+                    if data is None or data["current"] == 0: 
+                        continue
+                    
+                    curr_price = data["current"]
+                    prev_close = data["prev_close"]
+                    trade_money = data["trade_value_eok"]
+                    
+                    base_history = historical_db.get(code, [])[-30:] 
+                    temp_prices = base_history + [curr_price]
+                    
+                    cond_money = trade_money >= min_money
+                    rsi_val = calculate_rsi(temp_prices)
+                    disparity_val = (curr_price / prev_close) * 100 if prev_close > 0 else 100.0
+                    cond_bottom = (rsi_val <= rsi_limit) or (disparity_val <= disparity_limit)
+                    
+                    if cond_money or cond_bottom:
+                        stock_name = code_to_name_map.get(code, f"우량주({code})")
+                        change_rate = ((curr_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
+                        
+                        if cond_money and cond_bottom:
+                            signal_type = "👑 [지존] 대금폭발+바닥눌림"
+                        elif cond_money:
+                            signal_type = "🔥 [주도주] 거래대금 폭발"
+                        else:
+                            signal_type = "🛡️ [타점] 과매도 바닥눌림"
+                            
+                        is_duplicate = False
+                        for e in detected_signals:
+                            if e['종목명'] == stock_name and e['시그널'] == signal_type:
+                                is_duplicate = True
+                                break
+                                
+                        if not is_duplicate:
+                            detected_signals.insert(0, {
+                                "포착시간": now_time,
+                                "시그널": signal_type,
+                                "종목명": stock_name,
+                                "현재가": f"{curr_price:,.0f}원",
+                                "당일변동률": f"{change_rate:+.2f}%",
+                                "당일거래대금": f"{int(trade_money):,}억",
+                                "RSI지표": f"{round(rsi_val, 1)}",
+                                "당일변동수준": f"{round(disparity_val, 1)}%"
+                            })
+                            if "👑" in signal_type: 
+                                st.balloons()
+                except:
+                    continue
+            
+            if detected_signals:
+                df_disp = pd.DataFrame(detected_signals)
+                with grid_container:
+                    st.error("🚨 [실전 매매 포착: 진짜 돈이 몰리는 주도주 및 급락 눌림목 타점 목록] 🚨")
+                    st.dataframe(df_disp, use_container_width=True, height=500)
+            else:
+                with grid_container:
+                    st.info(f"📡 현재 당일 거래대금 {min_money}억 이상 터지거나 과매도 바닥 조건에 걸린 알짜 종목이 없습니다. 탐색 회전 지속 중...")
+                    
+            time.sleep(check_interval)
+        except Exception as e:
+            time.sleep(5)
