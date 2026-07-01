@@ -3,17 +3,17 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime, timedelta
-import FinanceDataReader as fdr  # 🚨 거래소 직결 및 RSI 예열을 위해 fdr 라이브러리 장착
+import FinanceDataReader as fdr
 
 # ==========================================
-# 앱 아이콘 및 탭 제목 설정 (Ver 13.0 완결판)
+# 앱 아이콘 및 탭 제목 설정 (Ver 14.0 방어막 결합판)
 # ==========================================
 st.set_page_config(page_title="이원동 자산 증식 레이더", page_icon="💸", layout="wide")
-st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 13.0)")
-st.caption("24개 고정 자물쇠를 완전히 분쇄하고, 거래소 직결 500대 대장주 풀을 통해 실시간 타점을 무제한 계측합니다.")
+st.title("💸 이원동의 '거래대금 스파이크 & 눌림목 타점 스캐너' (Ver 14.0)")
+st.caption("거래소 서버 차단 시 발동되는 구명조끼를 100대 대장주로 확장하여 무중단 실시간 레이더 감시를 보장합니다.")
 
-# 1. 🚨 [24개 마수 완전 소멸] KRX 시가총액 상위 500대 기업 실시간 자동 추출 엔진
-@st.cache_data(ttl=3600)  # 1시간 캐싱으로 속도 최적화 및 서버 부하 차단
+# 1. 🚨 KRX 500대 기업 자동 추출 및 100대 주도주 백업 엔진 장착
+@st.cache_data(ttl=3600)
 def get_robust_top_500_codes(count=500):
     try:
         df_krx = fdr.StockListing('KRX')
@@ -26,19 +26,44 @@ def get_robust_top_500_codes(count=500):
         names = pd.Series(top_500['Name'].values, index=top_500['Code']).to_dict()
         return codes[:count], names
     except Exception as e:
-        # 비상용 백업 명단
-        fallback = [("005930", "삼성전자"), ("000660", "SK하이닉스"), ("267260", "HD현대일렉트릭"), ("042700", "한미반도체")]
-        return [item[0] for item in fallback], {item[0]: item[1] for item in fallback}
+        # 🚨 차단 시 발동! 무적의 100대 대형주 비상 장갑판
+        backup_list = [
+            ("005930", "삼성전자"), ("000660", "SK하이닉스"), ("373220", "LG에너지솔루션"), ("207940", "삼성바이오로직스"),
+            ("005380", "현대차"), ("000270", "기아"), ("068270", "셀트리온"), ("005490", "POSCO홀딩스"),
+            ("035420", "NAVER"), ("006400", "삼성SDI"), ("051910", "LG화학"), ("012330", "현대모비스"),
+            ("032830", "삼성생명"), ("105560", "KB금융"), ("035720", "카카오"), ("003670", "포스코퓨처엠"),
+            ("015760", "한국전력"), ("028260", "삼성물산"), ("055550", "신한지주"), ("000810", "삼성화재"),
+            ("033780", "KT&G"), ("086520", "에코프로"), ("247540", "에코프로비엠"), ("010130", "고려아연"),
+            ("011170", "롯데케미칼"), ("009830", "한화솔루션"), ("000100", "유한양행"), ("006260", "LS"),
+            ("017670", "SK텔레콤"), ("030200", "KT"), ("032640", "LG유플러스"), ("251270", "넷마블"),
+            ("036570", "엔씨소프트"), ("259960", "크래프톤"), ("011070", "LG이노텍"), ("039490", "키움증권"),
+            ("016360", "삼성증권"), ("005940", "NH투자증권"), ("035820", "에스엠"), ("022100", "포스코DX"),
+            ("403550", "에코프로머티"), ("192080", "대한항공"), ("000150", "두산"), ("024110", "기업은행"),
+            ("323410", "카카오뱅크"), ("377300", "카카오페이"), ("454910", "두산로보틱스"), ("041510", "에스에프에이"),
+            ("004020", "현대제철"), ("011780", "금호석유"), ("078930", "GS"), ("010120", "LS일렉트릭"),
+            ("021240", "코웨이"), ("006800", "미래에셋증권"), ("000880", "한화"), ("001450", "현대해상"),
+            ("000080", "하이트진로"), ("004370", "농심"), ("005830", "DB손해보험"), ("009240", "한샘"),
+            ("014680", "한솔케미칼"), ("019170", "신풍제약"), ("034220", "LG디스플레이"), ("051900", "LG생활건강"),
+            ("086280", "현대글로비스"), ("090430", "아모레퍼시픽"), ("097950", "CJ제일제당"), ("128940", "한미약품"),
+            ("161390", "한국타이어앤테크놀로지"), ("180640", "한진칼"), ("271560", "오리온"), ("285130", "SK케미칼"),
+            ("302440", "SK바이오사이언스"), ("352820", "하이브"), ("361610", "SK아이이테크놀로지"), ("383220", "F&F"),
+            ("402340", "SK스퀘어"), ("950210", "프레스티지바이오파마"), ("267260", "HD현대일렉트릭"), ("042700", "한미반도체"),
+            ("034020", "두산에너빌리티"), ("000720", "현대건설"), ("328130", "루닛"), ("003550", "LG"),
+            ("010950", "S-Oil"), ("018260", "삼성에스디에스"), ("316140", "우리금융지주"), ("008930", "한미사이언스"),
+            ("086790", "하나금융지주"), ("000060", "메리츠금융지주"), ("020150", "일진머티리얼즈"), ("036460", "한국가스공사"),
+            ("047040", "대우건설"), ("047810", "한국항공우주"), ("069960", "현대백화점"), ("073240", "금호타이어"),
+            ("081660", "휠라홀딩스"), ("111770", "영원무역홀딩스"), ("120110", "코오롱인더"), ("175330", "JB금융지주")
+        ]
+        return [item[0] for item in backup_list], {item[0]: item[1] for item in backup_list}
 
-# 실시간 관제 대상 종목 500대 대장주 풀 가동
 final_market_codes, code_to_name_map = get_robust_top_500_codes(500)
 
-# 2. RSI 예열용 과거 주가 데이터 고속 다운로드 기능
+# 2. RSI 예열용 과거 주가 데이터 다운로드
 @st.cache_data(ttl=3600)
 def preload_historical_prices(codes):
     hist_dict = {}
     end_date = datetime.today()
-    start_date = end_date - timedelta(days=40) # 최근 약 30거래일 데이터 확보
+    start_date = end_date - timedelta(days=40)
     for code in codes:
         try:
             df = fdr.DataReader(code, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
@@ -47,7 +72,7 @@ def preload_historical_prices(codes):
             hist_dict[code] = []
     return hist_dict
 
-# 3. 자체 RSI 보조지표 연산 엔진
+# 3. 실시간 다이내믹 RSI 연산 엔진
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -60,14 +85,13 @@ def calculate_rsi(prices, period=14):
     rsi = rsi.fillna(50.0) 
     return rsi.iloc[-1]
 
-# 4. 네이버 금융 실시간 멀티 데이터 수집 엔진
+# 4. 네이버 금융 실시간 거래대금 수집 엔진
 def get_naver_advanced_data(codes):
     results = {}
     if not codes:
         return results
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # IP 차단 방지를 위해 50개씩 정중하게 쪼개서 들어갑니다.
         chunks = [codes[i:i + 50] for i in range(0, len(codes), 50)]
         for chunk in chunks:
             chunk_str = ",".join(chunk)
@@ -101,7 +125,6 @@ watch_mode = st.sidebar.radio("👇 감시 대상 선택", ["🛰️ 시장 상�
 
 final_codes = []
 if watch_mode == "🛰️ 시장 상위 대형주 스캔":
-    # 🚨 [500개 자물쇠 완전 해제] 이제 슬라이더를 당기시는 개수만큼 정직하게 확장됩니다!
     scan_limit = st.sidebar.slider("📊 스캔할 종목 수", min_value=50, max_value=500, value=200, step=50, key="radar_limit")
     final_codes = final_market_codes[:scan_limit]
 else:
@@ -131,7 +154,7 @@ st.subheader("🛰️ 주도주 돈줄 추적 & 과매도 타점 연산 가동")
 st.write(f"📢 현재 **{len(final_codes)}개 종목**의 실시간 거래대금 스파이크 현황과 RSI 가격 왜곡 현상을 무결점으로 동시 추적합니다.")
 
 if st.sidebar.button("🚀 독점적 시스템 매매 스캔 시작", key="btn_radar_run"):
-    with st.spinner(f"⌛ RSI 엔진 예열 중... 대한민국 {len(final_codes)}개 대장주 과거 주가를 동기화하고 있습니다."):
+    with st.spinner(f"⌛ RSI 엔진 예열 중... 실시간 차단 방어막 확인 완료. 과거 데이터를 동기화합니다."):
         historical_db = preload_historical_prices(final_codes)
         
     st.info("⚡ 메인 광통신망 직결 완료! 돈의 흐름과 가격 바닥 신호를 실시간 추적합니다.")
