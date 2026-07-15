@@ -7,17 +7,16 @@ import time
 from datetime import datetime
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 2.0 고도화)
+# 앱 아이콘 및 페이지 설정 (Ver 2.1 밸류에러 영구 박멸)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.0)")
-st.caption("인터넷 동행복권 API와의 실시간 광대역 연결을 통해, 과거 CSV 데이터 위에 최신 당첨 데이터를 완전 자동으로 누적 연산합니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.1)")
+st.caption("ValueError를 완벽히 해결하고, 데이터 정제 회로를 통해 안정적인 실시간 동기화를 보장합니다.")
 
 # ==========================================
-# 1. 📡 [실시간 고속 크롤링 엔진] 최신 회차 조회용
+# 1. 📡 [실시간 고속 크롤링 엔진]
 # ==========================================
 def fetch_lotto_api(drw_no):
-    """동행복권 공식 API를 통해 특정 회차의 당첨 번호를 가져옵니다."""
     url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drw_no}"
     try:
         res = requests.get(url, timeout=3)
@@ -40,11 +39,10 @@ def fetch_lotto_api(drw_no):
     return None
 
 # ==========================================
-# 2. 🛡️ [하이브리드 예외처리 엔진] 로컬 CSV + 실시간 API 자동 동기화
+# 2. 🛡️ [하이브리드 예외처리 및 데이터 정제 엔진]
 # ==========================================
-@st.cache_data(ttl=3600)  # 1시간 캐싱으로 속도 및 무중단 유지
+@st.cache_data(ttl=3600)
 def load_and_sync_lotto_data():
-    # 기본 비상용 시뮬레이션 기반 DB 구성
     fake_data = []
     random.seed(42)
     for round_idx in range(1100, 1150):
@@ -59,56 +57,64 @@ def load_and_sync_lotto_data():
     
     status_msg = ""
     try:
-        # 로컬 CSV 읽기 시도 (줄 깨짐 방어)
+        # 1. 로컬 파일 읽기
         df_base = pd.read_csv('lotto_data.csv', on_bad_lines='skip')
-        status_msg = "로컬 CSV 데이터베이스 로드 성공"
+        status_msg = "로컬 CSV 데이터베이스 로드 완료"
+        
+        # 🚨 [데이터 클리닝 회로] "회차" 컬럼을 강제로 숫자로 변환하고, 깨진 데이터는 드랍시킵니다.
+        df_base["회차"] = pd.to_numeric(df_base["회차"], errors="coerce")
+        df_base = df_base.dropna(subset=["회차"])
+        df_base["회차"] = df_base["회차"].astype(int)
+        
     except FileNotFoundError:
         df_base.to_csv('lotto_data.csv', index=False)
-        status_msg = "로컬 lotto_data.csv 신규 생성 및 장착"
+        status_msg = "로컬 lotto_data.csv 신규 생성"
     except Exception as e:
-        status_msg = f"⚠️ 로컬 로딩 오류 우회 가상 구동 중"
+        status_msg = f"⚠️ 가상 백업 구동 모드 전환"
 
-    # 실시간 데이터 동기화 파트
+    # 2. 실시간 최신 회차 동기화 연산
     try:
         if not df_base.empty and "회차" in df_base.columns:
             last_saved_round = int(df_base["회차"].max())
             next_round = last_saved_round + 1
             
-            # 무중단 고속 루핑을 돌려 최신 회차까지 실시간으로 긁어다 붙입니다.
             new_rows = []
             while True:
                 api_data = fetch_lotto_api(next_round)
                 if api_data is None:
-                    # 더 이상 조회되지 않는 최신 미발표 회차에 도달하면 탈출
                     break
                 new_rows.append(api_data)
                 next_round += 1
-                time.sleep(0.05) # 서버 부하 차단 딜레이
+                time.sleep(0.05)
                 
             if new_rows:
                 df_new = pd.DataFrame(new_rows)
-                # 데이터 병합 및 중복 완벽 제거
                 df_base = pd.concat([df_base, df_new], ignore_index=True)
                 df_base = df_base.drop_duplicates(subset=["회차"], keep="last")
+                df_base["회차"] = df_base["회차"].astype(int)
                 df_base = df_base.sort_values(by="회차", ascending=True)
                 
-                # 병합된 최신본을 로컬 CSV에 실시간으로 다시 저장(누적)합니다!
+                # 병합 정제된 데이터를 다시 안전하게 덮어씁니다.
                 df_base.to_csv('lotto_data.csv', index=False)
-                status_msg += f" (최신 {len(new_rows)}개 회차 실시간 동기화 완료!)"
+                status_msg += f" (최신 {len(new_rows)}개 회차 동기화 완료!)"
     except Exception as e:
-        status_msg += " (서버 차단으로 인한 실시간 API 동기화 일시 대기)"
+        status_msg += " (서버 연결 일시 지연)"
         
     return df_base, status_msg
 
 df_lotto, load_status = load_and_sync_lotto_data()
 
-# 사이드바 대시보드 상태창 표출
+# ==========================================
+# 3. 🚨 [안전 장치 추가] 수치화 표출부
+# ==========================================
 st.sidebar.success(f"📡 데이터 네트워크: {load_status}")
-if "회차" in df_lotto.columns:
-    st.sidebar.metric(label="현재 확보된 최신 회차", value=f"{int(df_lotto['회차'].max())}회")
+if "회차" in df_lotto.columns and not df_lotto.empty:
+    # 🚨 [수리 완료] 안전하게 연산된 정수값만 표출합니다.
+    max_round = int(df_lotto['회차'].max())
+    st.sidebar.metric(label="현재 확보된 최신 회차", value=f"{max_round}회")
 
 # ==========================================
-# 3. 📊 고도화된 연산 지표 (빈도수 및 홀짝 비율 추출)
+# 4. 📊 고도화된 연산 지표
 # ==========================================
 num_cols = ["번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
 all_numbers = []
@@ -117,7 +123,9 @@ odd_count = 0
 
 for col in num_cols:
     if col in df_lotto.columns:
-        list_vals = df_lotto[col].dropna().tolist()
+        # 데이터 타입을 강제 정수형으로 변환 후 연산에 반영
+        df_lotto[col] = pd.to_numeric(df_lotto[col], errors="coerce")
+        list_vals = df_lotto[col].dropna().astype(int).tolist()
         all_numbers.extend(list_vals)
         for val in list_vals:
             if val % 2 == 0:
@@ -128,7 +136,7 @@ for col in num_cols:
 frequency = pd.Series(all_numbers).value_counts().reindex(range(1, 46), fill_value=0)
 
 # ==========================================
-# 4. 🔮 레이아웃 전개 (탭 구성)
+# 5. 🔮 UI 탭 구성
 # ==========================================
 tab1, tab2 = st.tabs(["📊 역대 통계 및 홀짝 비율 분석", "🔮 가중치 전략 번호 생성기"])
 
@@ -168,7 +176,6 @@ with tab2:
     exclude_input = st.sidebar.text_input("❌ 제외 번호 입력 (쉼표 구분):", value="4, 13, 44")
     num_sets = st.sidebar.slider("🎲 생성할 조합 수", min_value=1, max_value=10, value=5)
     
-    # 제외수 정수 변환 예외처리
     exclude_nums = []
     if exclude_input:
         try:
@@ -181,11 +188,9 @@ with tab2:
         
         available_numbers = [n for n in range(1, 46) if n not in exclude_nums]
         
-        # 대표님의 필터 선택에 따른 가중치 연산 공식 교체
         if strategy_mode == "🔥 다출수 가중치 (많이 나온 번호 선호)":
             weights = [frequency.get(n, 1) + 1 for n in available_numbers]
         else:
-            # 미출수 선호 전략: 출현 빈도의 역수를 가중치로 지정
             max_freq = frequency.max()
             weights = [(max_freq - frequency.get(n, 0)) + 1 for n in available_numbers]
             
@@ -197,7 +202,6 @@ with tab2:
             set_nums = np.random.choice(available_numbers, size=6, replace=False, p=norm_weights)
             set_nums = sorted(set_nums)
             
-            # 생성된 번호 세트의 자체 홀짝 통계 연산
             odds = len([x for x in set_nums if x % 2 != 0])
             evens = len([x for x in set_nums if x % 2 == 0])
             
