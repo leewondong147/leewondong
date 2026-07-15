@@ -1,53 +1,40 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
 
-st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.0)")
+st.set_page_config(layout="wide")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.1)")
 
-uploaded_file = st.file_uploader("📂 엑셀 파일 올리기", type=["csv", "xlsx", "xls"])
+# [사이드바] 위치 수동 지정 도구
+st.sidebar.header("⚙️ 엑셀 구조 수동 설정")
+start_row = st.sidebar.number_input("데이터 시작 행 번호 (첫 줄=0)", value=0)
+c_date_idx = st.sidebar.number_input("작성일자 열 번호 (A=0, B=1...)", value=1)
+c_name_idx = st.sidebar.number_input("상호 열 번호", value=2)
+c_supply_idx = st.sidebar.number_input("공급가액 열 번호", value=3)
+c_tax_idx = st.sidebar.number_input("세액 열 번호", value=4)
 
-if uploaded_file is not None:
+uploaded_file = st.file_uploader("📂 엑셀 파일 올리기", type=["xlsx", "xls", "csv"])
+
+if uploaded_file:
     try:
-        # 1. 파일 읽기 (모든 데이터를 문자로 먼저 읽음)
-        df_raw = pd.read_excel(uploaded_file, header=None, dtype=str) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, header=None, dtype=str)
+        # 1. 파일 로드
+        df = pd.read_excel(uploaded_file, header=None) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, header=None)
         
-        # 2. 🚨 데이터 시작 행을 찾는 정밀 알고리즘
-        # '공급가액'이나 '세액'이라는 단어가 처음 등장하는 행을 찾아 그 다음부터를 데이터로 인식
-        start_row = 0
-        for i in range(len(df_raw)):
-            row_str = "".join(df_raw.iloc[i].fillna('').astype(str))
-            if '공급가액' in row_str or '세액' in row_str:
-                start_row = i
-                break
+        # 2. 지정한 시작 행부터 읽기
+        df = df.iloc[start_row:].reset_index(drop=True)
+        df.columns = df.iloc[0]
+        df = df.iloc[1:].reset_index(drop=True)
         
-        # 데이터프레임 재구성
-        df = df_raw.iloc[start_row+1:].reset_index(drop=True)
-        df.columns = df_raw.iloc[start_row].values
+        # 3. 지정한 열 번호로 데이터 매핑
+        cols = list(df.columns)
+        df['작성일자'] = df.iloc[:, c_date_idx]
+        df['상호'] = df.iloc[:, c_name_idx]
+        df['공급가액'] = pd.to_numeric(df.iloc[:, c_supply_idx], errors='coerce').fillna(0)
+        df['세액'] = pd.to_numeric(df.iloc[:, c_tax_idx], errors='coerce').fillna(0)
+        df['합계'] = df['공급가액'] + df['세액']
         
-        # 컬럼명 정리 및 0값 방어
-        df.columns = [str(c).strip() for c in df.columns]
-        
-        # 3. 데이터형 변환 (필수 컬럼만 추적)
-        def clean_num(x):
-            try:
-                return float(str(x).replace(',', '').replace('원', '').replace('"', '').strip())
-            except:
-                return 0.0
-
-        # 컬럼 찾기 (유연하게)
-        c_date = next((c for c in df.columns if '일자' in str(c)), df.columns[0])
-        c_name = next((c for c in df.columns if '상호' in str(c) or '거래처' in str(c)), df.columns[1])
-        c_supply = next((c for c in df.columns if '공급가액' in str(c)), df.columns[-2])
-        c_tax = next((c for c in df.columns if '세액' in str(c)), df.columns[-1])
-
-        df[c_supply] = df[c_supply].apply(clean_num)
-        df[c_tax] = df[c_tax].apply(clean_num)
-        df['합계'] = df[c_supply] + df[c_tax]
-        
-        st.write("✅ 데이터 로드 성공!")
-        st.dataframe(df[[c_date, c_name, c_supply, c_tax, '합계']])
+        st.success("✅ 매핑 완료. 아래 표가 맞는지 확인하세요.")
+        st.dataframe(df[['작성일자', '상호', '공급가액', '세액', '합계']])
 
     except Exception as e:
-        st.error(f"🚨 오류 발생: {e}")
+        st.error(f"🚨 설정 오류: {e} - 행/열 번호를 다시 확인해 주세요.")
