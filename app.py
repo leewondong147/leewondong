@@ -7,11 +7,11 @@ import time
 from datetime import datetime
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 2.4 순서 및 차트 완전 해결판)
+# 앱 아이콘 및 페이지 설정 (Ver 2.5 차트 기둥 복구 완결판)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.4)")
-st.caption("1~45번 순서 흐트러짐을 완벽하게 교정하고, 스트림릿 시각화 엔진의 렌더링 버그를 차단했습니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.5)")
+st.caption("스트림릿 데이터 타입 버그를 완벽 해결하고, 1~45번 가로막대 기둥이 정상 표출되도록 데이터 규격을 대수술했습니다.")
 
 # ==========================================
 # 1. 📡 [실시간 고속 크롤링 엔진]
@@ -138,7 +138,7 @@ if target_cols:
 else:
     all_numbers = [random.randint(1, 45) for _ in range(300)]
 
-# 🚨 [순서 절대 고정] 1번부터 45번까지 비어있는 간격 없이 정수 순서대로 완벽 정렬합니다.
+# 1번부터 45번까지 정합 정수 인덱스 정렬 수립
 frequency = pd.Series(all_numbers).value_counts().reindex(range(1, 46), fill_value=0)
 
 # ==========================================
@@ -149,7 +149,7 @@ tab1, tab2 = st.tabs(["📊 역대 통계 및 홀짝 비율 분석", "🔮 가�
 with tab1:
     st.subheader("📊 역대 당첨 데이터 패턴 종합 대시보드")
     
-    # 표 상위 노출용 전처리 (표는 당첨 횟수가 많은 역순으로 동적 전개)
+    # 디스플레이용 테이블 전처리
     df_freq_display = pd.DataFrame({
         "숫자": [f"{i}번" for i in frequency.index],
         "출현횟수": frequency.values
@@ -172,14 +172,14 @@ with tab1:
             odd_pct = (odd_count / total_balls) * 100
             st.info(f"🔵 **홀수(Odd): {odd_pct:.1f}%**  |  🔴 **짝수(Even): {even_pct:.1f}%**")
         
-        # 🚨 [수리 완료] 인덱스를 강제로 데이터프레임 안의 단일 '숫자' 칼럼으로 이관하고,
-        # 스트림릿이 꼬이지 않도록 데이터프레임 변수를 주입하여 1~45 가로막대를 완벽 수평 정렬해서 출력합니다.
+        # 🚨 [수리 완료] 데이터프레임 구조를 완전히 청소하고, y축 데이터 타입을 float형으로 변환하여
+        # 스트림릿 차트 엔진이 45개의 파란색 기둥을 빈틈없이 채워서 표출하도록 수술 완료했습니다.
         st.write("📈 **1~45 번호별 출현 빈도 바 차트 (가로축: 번호순 정렬)**")
         df_chart_data = pd.DataFrame({
-            "번호": frequency.index,
-            "출현빈도": frequency.values
+            "로또번호": [f"{i}번" for i in range(1, 46)],
+            "출현빈도": [float(val) for val in frequency.values]
         })
-        st.bar_chart(df_chart_data.set_index("번호"))
+        st.bar_chart(df_chart_data, x="로또번호", y="출현빈도")
 
 with tab2:
     st.subheader("🔮 패턴 전략 가중치 번호 추출기")
