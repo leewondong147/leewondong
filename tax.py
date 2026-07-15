@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import re
 
 # ==========================================
-# 1. 페이지 및 기본 환경 설정 (Ver 9.3 초강력 완결 복구판)
+# 1. 페이지 및 기본 환경 설정 (Ver 9.4 밀림 현상 영구 박멸판)
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 9.3)")
-st.caption("상호와 날짜의 변수 매핑 오작동을 완벽 통제하고, 공급가액 및 세액의 0원 소실을 백업 수치 추출 알고리즘으로 해결했습니다.")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 9.4)")
+st.caption("제목에 숨은 줄바꿈 문자로 인한 '1칸 밀림(도미노) 에러'를 정규표현식 세척기로 완전히 분쇄했습니다.")
 
 # 작업 선택
 job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
@@ -16,7 +17,7 @@ job_type = st.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 �
 uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
 # ==========================================
-# 🛠️ [정밀 전처리 도구] 무결점 수치 추출기
+# 🛠️ [정밀 전처리 도구] 무결점 수치 및 날짜 추출기
 # ==========================================
 def clean_value_secure(val):
     """단일 값에 든 모든 쉼표, 한글, 공백을 물리적으로 지우고 순수 숫자로 변환합니다."""
@@ -43,14 +44,17 @@ if uploaded_file is not None:
         else:
             df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
 
-        # 2. 제목 줄(Header) 찾기 로직 강화
+        # 2. 🚨 [수리 핵심] 제목 줄(Header) 강제 사냥 로직
         header_row = 0
         found_header = False
         for i in range(min(len(df_raw), 25)):
-            row_vals = df_raw.iloc[i].fillna('').values
-            row_str = "".join(map(str, row_vals)).replace(" ", "")
-            # 승인번호, 공급가액 등의 실무 거래 정보 키워드로 정교한 탐색 시작
-            if any(k in row_str for k in ['일자', '공급가액', '승인번호', '거래처', '상호', '세액']):
+            row_str = "".join(map(str, df_raw.iloc[i].fillna('').values))
+            # 숨어있는 줄바꿈과 특수문자를 완전히 무시하고 오직 글자만 봅니다!
+            cleaned_row = re.sub(r'[^가-힣a-zA-Z0-9]', '', row_str)
+            
+            if ('승인번호' in cleaned_row and '공급가액' in cleaned_row) or \
+               ('작성일자' in cleaned_row and '공급가액' in cleaned_row) or \
+               ('일자' in cleaned_row and '상호' in cleaned_row):
                 header_row = i
                 found_header = True
                 break
@@ -61,50 +65,38 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file, skiprows=header_row)
 
-        # 컬럼 양끝 공백 제거 및 정형화
-        df.columns = [str(c).strip() for c in df.columns]
+        # 🚨 [수리 핵심] 컬럼명 자체에 묻어있는 특수문자/줄바꿈/공백 완전 소독 (알파벳, 숫자, 한글만 남김)
+        df.columns = [re.sub(r'[^가-힣a-zA-Z0-9]', '', str(c)) for c in df.columns]
 
         # ==========================================
-        # 🚨 3. [초강력 매핑] 날짜-상호 중복 및 꼬임 완전 파괴 가드레일
+        # 🚨 3. [초강력 매핑] 승인번호 밀림 방지 및 매입/매출 분리 추적
         # ==========================================
-        # 가. 작성일자 열 찾기 (단순 '일자', '작성일' 우선 지목)
-        c_date = next((c for c in df.columns if any(k in str(c) for k in ['작성일자', '작성일', '일자', '일시'])), None)
-        if not c_date:
-            c_date = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+        # 가. 작성일자 열 찾기
+        c_date = next((c for c in df.columns if '작성일자' in c), None)
+        if not c_date: 
+            c_date = next((c for c in df.columns if '일자' in c), df.columns[1] if len(df.columns)>1 else df.columns[0])
+
+        # 나. 👑 상호명 열 찾기 (매입/매출 완벽 분리 타격!)
+        if job_type == "🛒 매입":
+            # 매입: 우리가 돈을 낸 것 (상대방은 첫 번째 상호인 '공급자')
+            c_name = next((c for c in df.columns if c == '상호' or '공급자상호' in c), None)
+        elif job_type == "💰 매출":
+            # 매출: 우리가 돈을 받은 것 (상대방은 두 번째 상호인 '공급받는자', 판다스가 중복처리하여 '상호1'이 됨)
+            c_name = next((c for c in df.columns if c == '상호1' or '공급받는자상호' in c), None)
+            if not c_name: c_name = next((c for c in df.columns if '상호' in c), None)
+        else:
+            # 카드
+            c_name = next((c for c in df.columns if '가맹점' in c or '상호' in c or '거래처' in c), None)
             
-        # 나. 상호명 열 찾기 (🚨 날짜 기둥 c_date로 선택된 컬럼은 절대 중복 지정되지 않도록 배제!)
-        c_name = next((c for c in df.columns if any(k in str(c) for k in ['상호', '가맹점', '거래처', '회사명', '공급자']) and str(c) != c_date), None)
         if not c_name:
-            # 일자가 위치한 다음다음 칸 부근을 정렬 구조에 입각해 선택
-            remaining_cols = [col for col in df.columns if col != c_date]
-            c_name = remaining_cols[1] if len(remaining_cols) > 1 else remaining_cols[0]
-            
-        # 다. 공급가액 및 세액 열 매칭 (기존에 선택 완료된 날짜와 상호 컬럼 원천 배제!)
-        c_supply = next((c for c in df.columns if any(k in str(c) for k in ['공급가액', '공급가', '공급가액(원)']) and str(c) not in [c_date, c_name]), None)
-        if not c_supply:
-            c_supply = next((c for c in df.columns if any(k in str(c) for k in ['금액', '합계', '승인금액', '이용금액', '합계금액']) and str(c) not in [c_date, c_name]), None)
-            
-        c_tax = next((c for c in df.columns if any(k in str(c) for k in ['세액', '부가세', '세액(원)']) and str(c) not in [c_date, c_name, c_supply]), None)
+            c_name = df.columns[6] if len(df.columns) > 6 else df.columns[2]
 
-        # ==========================================
-        # 🛡️ [수리 보증 백업 장치] 수치가 발견되지 않았을 경우 최후의 복원 엔진
-        # ==========================================
-        # 만약 공급가액이나 세액 컬럼 매칭에 실패하여 0원 데이터가 발생할 기조가 보일 때 가동됩니다.
-        if not c_supply or df[c_supply].apply(clean_value_secure).sum() == 0.0:
-            # 데이터프레임 내에서 날짜와 상호를 뺀 나머지 열 중 수치형 연산 결과 합산액이 가장 높은 열을 동적으로 자동 수립합니다!
-            numerical_candidates = []
-            for col in df.columns:
-                if col not in [c_date, c_name]:
-                    total_vol = df[col].apply(clean_value_secure).sum()
-                    if total_vol > 0.0:
-                        numerical_candidates.append((col, total_vol))
+        # 다. 공급가액 및 세액 열 매칭
+        c_supply = next((c for c in df.columns if '공급가액' in c), None)
+        if not c_supply: 
+            c_supply = next((c for c in df.columns if '합계' in c or '금액' in c), df.columns[-2] if len(df.columns)>2 else df.columns[-1])
             
-            # 수치 후보군 정렬 후 가장 큰 값을 공급가액, 그 다음 비율을 세액으로 이중 백업 설계
-            if numerical_candidates:
-                numerical_candidates.sort(key=lambda x: x[1], reverse=True)
-                c_supply = numerical_candidates[0][0]
-                if len(numerical_candidates) > 1:
-                    c_tax = numerical_candidates[1][0]
+        c_tax = next((c for c in df.columns if '세액' in c), None)
 
         # 4. 데이터 안전 파싱 및 수치 형변환 전개
         df[c_supply] = df[c_supply].apply(clean_value_secure)
@@ -181,7 +173,7 @@ if uploaded_file is not None:
         
         st.divider()
         st.success(f"✅ {job_type} 정산 완료!")
-        st.download_button("📥 카드정산 엑셀 다운로드", output.getvalue(), "호진환경_정산_완료.xlsx")
+        st.download_button("📥 정산 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_정산완료.xlsx")
         
         c1, c2 = st.columns(2)
         with c1: 
