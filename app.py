@@ -7,11 +7,11 @@ import time
 from datetime import datetime
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 2.1 밸류에러 영구 박멸)
+# 앱 아이콘 및 페이지 설정 (Ver 2.2 차트 완벽 복구판)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.1)")
-st.caption("ValueError를 완벽히 해결하고, 데이터 정제 회로를 통해 안정적인 실시간 동기화를 보장합니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.2)")
+st.caption("비어 있던 출현 빈도 차트 매핑 구조를 완벽하게 수리하여 1~45번의 모든 당첨 통계를 한눈에 시각화합니다.")
 
 # ==========================================
 # 1. 📡 [실시간 고속 크롤링 엔진]
@@ -57,11 +57,9 @@ def load_and_sync_lotto_data():
     
     status_msg = ""
     try:
-        # 1. 로컬 파일 읽기
         df_base = pd.read_csv('lotto_data.csv', on_bad_lines='skip')
         status_msg = "로컬 CSV 데이터베이스 로드 완료"
         
-        # 🚨 [데이터 클리닝 회로] "회차" 컬럼을 강제로 숫자로 변환하고, 깨진 데이터는 드랍시킵니다.
         df_base["회차"] = pd.to_numeric(df_base["회차"], errors="coerce")
         df_base = df_base.dropna(subset=["회차"])
         df_base["회차"] = df_base["회차"].astype(int)
@@ -72,7 +70,6 @@ def load_and_sync_lotto_data():
     except Exception as e:
         status_msg = f"⚠️ 가상 백업 구동 모드 전환"
 
-    # 2. 실시간 최신 회차 동기화 연산
     try:
         if not df_base.empty and "회차" in df_base.columns:
             last_saved_round = int(df_base["회차"].max())
@@ -94,7 +91,6 @@ def load_and_sync_lotto_data():
                 df_base["회차"] = df_base["회차"].astype(int)
                 df_base = df_base.sort_values(by="회차", ascending=True)
                 
-                # 병합 정제된 데이터를 다시 안전하게 덮어씁니다.
                 df_base.to_csv('lotto_data.csv', index=False)
                 status_msg += f" (최신 {len(new_rows)}개 회차 동기화 완료!)"
     except Exception as e:
@@ -105,11 +101,10 @@ def load_and_sync_lotto_data():
 df_lotto, load_status = load_and_sync_lotto_data()
 
 # ==========================================
-# 3. 🚨 [안전 장치 추가] 수치화 표출부
+# 3. 수치화 표출부
 # ==========================================
 st.sidebar.success(f"📡 데이터 네트워크: {load_status}")
 if "회차" in df_lotto.columns and not df_lotto.empty:
-    # 🚨 [수리 완료] 안전하게 연산된 정수값만 표출합니다.
     max_round = int(df_lotto['회차'].max())
     st.sidebar.metric(label="현재 확보된 최신 회차", value=f"{max_round}회")
 
@@ -123,7 +118,6 @@ odd_count = 0
 
 for col in num_cols:
     if col in df_lotto.columns:
-        # 데이터 타입을 강제 정수형으로 변환 후 연산에 반영
         df_lotto[col] = pd.to_numeric(df_lotto[col], errors="coerce")
         list_vals = df_lotto[col].dropna().astype(int).tolist()
         all_numbers.extend(list_vals)
@@ -133,6 +127,7 @@ for col in num_cols:
             else:
                 odd_count += 1
 
+# 1~45번까지 빈도수를 정교하게 집계합니다.
 frequency = pd.Series(all_numbers).value_counts().reindex(range(1, 46), fill_value=0)
 
 # ==========================================
@@ -143,7 +138,8 @@ tab1, tab2 = st.tabs(["📊 역대 통계 및 홀짝 비율 분석", "🔮 가�
 with tab1:
     st.subheader("📊 역대 당첨 데이터 패턴 종합 대시보드")
     
-    df_freq = pd.DataFrame({
+    # 디스플레이용 데이터프레임 (가장 많이 나온 순 정렬)
+    df_freq_display = pd.DataFrame({
         "숫자": frequency.index,
         "출현횟수": frequency.values
     }).sort_values(by="출현횟수", ascending=False)
@@ -151,11 +147,11 @@ with tab1:
     col1, col2, col3 = st.columns([1, 1.2, 1.8])
     with col1:
         st.write("🏆 **최다 출현 번호 Top 7**")
-        st.dataframe(df_freq.head(7), use_container_width=True, hide_index=True)
+        st.dataframe(df_freq_display.head(7), use_container_width=True, hide_index=True)
         
     with col2:
         st.write("📉 **최소 출현 번호 Top 7**")
-        st.dataframe(df_freq.tail(7), use_container_width=True, hide_index=True)
+        st.dataframe(df_freq_display.tail(7), use_container_width=True, hide_index=True)
         
     with col3:
         st.write("⚖️ **역대 당첨 번호 홀수 vs 짝수 비율**")
@@ -164,8 +160,13 @@ with tab1:
             even_pct = (even_count / total_balls) * 100
             odd_pct = (odd_count / total_balls) * 100
             st.info(f"🔵 **홀수(Odd): {odd_pct:.1f}%**  |  🔴 **짝수(Even): {even_pct:.1f}%**")
-        st.write("📈 **1~45 번호별 출현 빈도 레이더 차트**")
-        st.bar_chart(df_freq.set_index("숫자"))
+        
+        # 🚨 [수리 완료] st.bar_chart가 좋아하는 완벽한 동기화용 데이터프레임 매핑 구조 설계
+        st.write("📈 **1~45 번호별 출현 빈도 레이더 차트 (가로축: 번호 / 세로축: 빈도)**")
+        df_chart_data = pd.DataFrame({
+            "출현빈도": frequency.values
+        }, index=frequency.index)
+        st.bar_chart(df_chart_data)
 
 with tab2:
     st.subheader("🔮 패턴 전략 가중치 번호 추출기")
