@@ -8,8 +8,8 @@ import re
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.3 화면 직접수정판)")
-st.caption("KT 요금을 화면에서 직접 클릭하여 수정한 뒤 정산할 수 있는 에디터 기능이 탑재되었습니다.")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.4 양식 방어판)")
+st.caption("국세청 엑셀의 사소한 양식 변경에도 흔들리지 않는 초강력 스마트 탐색 엔진이 탑재되었습니다.")
 
 # ==========================================
 # ⚙️ 2. [사이드바] 설정 제어판
@@ -21,7 +21,6 @@ st.sidebar.divider()
 st.sidebar.subheader("⚖️ 거래처 분배 비율")
 ansan_ratio = st.sidebar.slider("안산 본점 할당 비율 (%)", min_value=0, max_value=100, value=50, step=1)
 incheon_ratio = 100 - ansan_ratio
-st.sidebar.caption(f"👉 전체 분배 비율: 안산 {ansan_ratio}% / 인천 {incheon_ratio}%")
 
 uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
@@ -39,38 +38,54 @@ def parse_flexible_date(series):
 
 if uploaded_file is not None:
     try:
+        # 1. 파일 안전하게 읽기
         df_raw = pd.read_excel(uploaded_file, header=None, dtype=str) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, header=None, dtype=str)
 
-        # 진짜 제목줄 찾기
+        # 🚨 [강력 업데이트] 2. 초강력 진짜 제목줄(헤더) 찾기
         header_row_idx = -1
-        for i in range(min(len(df_raw), 25)):
-            row_list = df_raw.iloc[i].fillna('').astype(str).tolist()
-            if '작성일자' in row_list and '공급가액' in row_list:
+        
+        # 탐색 범위를 50줄로 늘리고, 공백/특수문자를 완전히 무시하고 검색합니다.
+        for i in range(min(len(df_raw), 50)):
+            # 해당 줄의 모든 데이터를 하나의 문자열로 합칩니다.
+            raw_row_str = "".join(df_raw.iloc[i].fillna('').astype(str))
+            
+            # 정규식(Regex)을 사용하여 한글, 영어, 숫자만 남기고 띄어쓰기 등 모든 것을 지웁니다.
+            clean_row_str = re.sub(r'[^가-힣a-zA-Z0-9]', '', raw_row_str)
+            
+            # 뼈대만 남은 문자열에 핵심 단어가 있는지 확인합니다.
+            if '작성일자' in clean_row_str and '공급가액' in clean_row_str:
                 header_row_idx = i
                 break
         
         if header_row_idx == -1:
-            st.error("🚨 엑셀 파일에서 '작성일자'와 '공급가액' 제목을 찾을 수 없습니다.")
+            st.error("🚨 엑셀 파일에서 '작성일자'와 '공급가액' 항목을 찾을 수 없습니다. 국세청 양식이 완전히 바뀐 것 같습니다.")
             st.stop()
 
-        # 열 번호(좌표) 추출
+        # 3. 열 번호(좌표) 추출 로직 강화
         header_list = df_raw.iloc[header_row_idx].fillna('').astype(str).tolist()
+        # 헤더 이름 자체에서도 공백과 줄바꿈을 완벽히 제거합니다.
         header_list = [re.sub(r'\s+', '', col) for col in header_list]
 
-        idx_date = header_list.index('작성일자')
-        idx_sup = header_list.index('공급가액')
-        idx_tax = header_list.index('세액')
+        # 단어가 정확히 일치하지 않아도 포함되어 있으면 찾아내도록 강화
+        idx_date = next((i for i, col in enumerate(header_list) if '작성일자' in col), -1)
+        idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col or '금액' in col), -1)
+        idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
 
-        name_indices = [i for i, col in enumerate(header_list) if '상호' in col]
+        name_indices = [i for i, col in enumerate(header_list) if '상호' in col or '거래처' in col]
         
         if job_type == "💰 매출":
-            idx_name = name_indices[1] if len(name_indices) > 1 else name_indices[0]
+            idx_name = name_indices[1] if len(name_indices) > 1 else (name_indices[0] if name_indices else -1)
         else:
             idx_name = name_indices[0] if len(name_indices) > 0 else -1
+            
+        # 필수 열 번호를 제대로 찾았는지 안전 검사
+        if -1 in [idx_date, idx_sup, idx_name]:
+             st.error("🚨 제목줄은 찾았으나, 날짜/공급가액/상호 기둥을 정확히 분류하지 못했습니다.")
+             st.stop()
 
         df_data = df_raw.iloc[header_row_idx+1:].copy()
         
-        # 데이터를 돌면서 KT 내역과 일반 내역을 우선 분리합니다.
+        # 데이터를 돌면서 KT 내역과 일반 내역을 분리합니다.
         kt_list = []
         other_list = []
 
@@ -91,7 +106,7 @@ if uploaded_file is not None:
                 '상호': str(row[idx_name]),
                 '공급가액': sup_val,
                 '세액': tax_val,
-                '전체텍스트': full_text # 키워드 검색을 위해 숨겨둠
+                '전체텍스트': full_text 
             }
 
             if '케이티' in name_str or 'kt' in name_str:
@@ -106,9 +121,8 @@ if uploaded_file is not None:
         
         if not kt_df.empty:
             st.subheader("📝 주식회사 KT 요금 직접 수정")
-            st.caption("표 안의 **'공급가액'** 숫자를 클릭해서 원하는 금액(예: 안산 할당분)으로 직접 수정하세요. 세액은 정산 시 자동 계산됩니다.")
+            st.caption("표 안의 **'공급가액'** 숫자를 클릭해서 원하는 금액(안산 할당분)으로 직접 수정하세요.")
             
-            # 편집 가능한 데이터프레임 (작성일자와 상호는 수정 불가, 공급가액만 수정 가능)
             edited_kt_df = st.data_editor(
                 kt_df[['작성일자', '상호', '공급가액']], 
                 disabled=["작성일자", "상호"],
@@ -127,17 +141,14 @@ if uploaded_file is not None:
             ansan_data, incheon_data = [], []
             ratio = ansan_ratio / 100.0
 
-            # 1. 수정한 KT 데이터 처리 (KT는 수정한 금액 자체가 안산 할당분이 됩니다)
             if not edited_kt_df.empty:
                 for idx, row in edited_kt_df.iterrows():
                     date_str = row['작성일자']
                     name_str = row['상호']
                     
-                    # 에디터에서 수정한 공급가액 (안산 몫)
                     a_sup = float(row['공급가액']) 
-                    a_tax = np.floor(a_sup * 0.1) # 세액 자동 계산
+                    a_tax = np.floor(a_sup * 0.1) 
                     
-                    # 원래 전체 금액을 가져와서 인천 몫 계산
                     original_sup = kt_df.iloc[idx]['공급가액']
                     original_tax = kt_df.iloc[idx]['세액']
                     
@@ -147,7 +158,6 @@ if uploaded_file is not None:
                     ansan_data.append([date_str, name_str, a_sup, a_tax, a_sup + a_tax])
                     incheon_data.append([date_str, name_str, i_sup, i_tax, i_sup + i_tax])
 
-            # 2. 나머지 일반 데이터 처리
             for row in other_list:
                 date_str = row['작성일자']
                 name_str = row['상호']
@@ -175,7 +185,6 @@ if uploaded_file is not None:
                     else:
                         incheon_data.append([date_str, name_str, sup_val, tax_val, sup_val + tax_val])
 
-            # 3. 소계 및 총계 생성 함수
             final_columns = ['작성일자', '상호', '공급가액', '세액', '합계']
             
             def format_with_subtotals(data_list):
@@ -198,7 +207,6 @@ if uploaded_file is not None:
             a_df = format_with_subtotals(ansan_data)
             i_df = format_with_subtotals(incheon_data)
 
-            # 4. 결과 출력
             st.success("✅ 정산이 완료되었습니다! 아래 결과를 확인해 주세요.")
             
             output = io.BytesIO()
@@ -217,4 +225,4 @@ if uploaded_file is not None:
                 st.dataframe(i_df, use_container_width=True)
 
     except Exception as e:
-        st.error(f"🚨 오류 발생: {e}")
+        st.error(f"🚨 예상치 못한 오류 발생: {e}")
