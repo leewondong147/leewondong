@@ -5,154 +5,141 @@ import io
 import re
 
 # ==========================================
-# 1. 페이지 및 기본 환경 설정
+# 1. 페이지 설정 및 초기화
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 9.7.2 에러 방어판)")
-st.caption("중복 열 이름으로 인한 데이터 분석 오류(Reindexing Error)를 완벽히 차단했습니다.")
+st.title("📊 (주)호진환경 부가세 정산기 (9.7 복구 + KT 사용량 적용판)")
+st.caption("초기 9.7버전의 안정성에 'KT 사용량 기반 숫자 입력 분배 기능'을 결합했습니다.")
 
 # ==========================================
-# ⚙️ [사이드바] 커스텀 설정 제어판
+# ⚙️ 2. [사이드바] 설정 제어판
 # ==========================================
 st.sidebar.header("⚙️ 상세 조건 설정")
 job_type = st.sidebar.radio("👇 작업 선택", ["🛒 매입", "💰 매출", "💳 카드"])
 
 st.sidebar.divider()
-st.sidebar.subheader("⚖️ 거래처 분배 비율 설정")
+st.sidebar.subheader("⚖️ 일반 거래처 분배 비율 (진솔, 비즈택스 등)")
 ansan_ratio = st.sidebar.slider("안산 본점 할당 비율 (%)", min_value=0, max_value=100, value=50, step=1)
 incheon_ratio = 100 - ansan_ratio
-st.sidebar.caption(f"👉 현재 설정: 안산 **{ansan_ratio}%** / 인천 **{incheon_ratio}%**")
 
 st.sidebar.divider()
-st.sidebar.subheader("📞 주식회사 KT 요금 설정")
+st.sidebar.subheader("📞 KT 요금 전용 '사용량' 설정")
+st.sidebar.caption("여기에 사용량 숫자를 입력하면, 그 비율에 맞춰 KT 요금이 나뉩니다.")
+kt_ansan_usage = st.sidebar.number_input("KT 안산 사용량 (숫자 입력)", value=50, step=1)
+kt_incheon_usage = st.sidebar.number_input("KT 인천 사용량 (숫자 입력)", value=50, step=1)
+
+# KT 사용량 비율 자동 계산
+total_kt_usage = kt_ansan_usage + kt_incheon_usage
+if total_kt_usage > 0:
+    kt_ansan_percent = kt_ansan_usage / total_kt_usage
+else:
+    kt_ansan_percent = 0.5 # 0일 경우 기본 50% 방어 로직
+
+st.sidebar.caption(f"👉 자동 계산된 KT 분배 비율: 안산 {kt_ansan_percent*100:.1f}%")
+
 kt_threshold = st.sidebar.number_input("소액 기준 (이 금액 미만일 때 적용)", value=55000, step=1000)
-kt_new_supply = st.sidebar.number_input("👉 소액 시 강제 변경할 공급가액 (0: 원본)", value=0, step=1000)
 
 uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
 # ==========================================
-# 🛠️ [정밀 전처리 도구]
+# 🛠️ 3. [전처리] 안전한 데이터 추출기
 # ==========================================
 def clean_value_secure(val):
-    if pd.isna(val): return 0.0
-    val_str = str(val).strip().replace(",", "").replace("원", "").replace('"', '').replace(" ", "")
-    try: return float(val_str)
+    try: return float(str(val).replace(",", "").replace("원", "").replace('"', '').strip())
     except: return 0.0
 
 if uploaded_file is not None:
     try:
-        # 1. 파일 읽기
+        # 파일 읽기
         df_raw = pd.read_excel(uploaded_file, header=None, dtype=str) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, header=None, dtype=str)
 
-        # 2. 스마트 헤더 탐색
+        # 제목줄 찾기 (공급가액이라는 단어가 있는 줄)
         header_row = 0
         for i in range(min(len(df_raw), 25)):
-            row_str = "".join(df_raw.iloc[i].fillna('').values).replace(" ", "")
-            if '공급가액' in row_str and ('세액' in row_str or '상호' in row_str):
+            row_str = "".join(df_raw.iloc[i].fillna('').astype(str)).replace(" ", "")
+            if '공급가액' in row_str:
                 header_row = i
                 break
         
         df = df_raw.iloc[header_row+1:].reset_index(drop=True)
         raw_cols = df_raw.iloc[header_row].fillna('').astype(str).tolist()
         
-        # 3. 🚨 [강력한 에러 방어] 중복 열 이름 완벽 차단 로직 (Reindexing 오류 해결)
-        cleaned_cols = [re.sub(r'[^가-힣a-zA-Z0-9]', '', c) for c in raw_cols]
-        final_cols = []
-        col_counts = {}
-        
-        for c in cleaned_cols:
-            if c == "": c = "빈칸" # 이름이 없는 열은 '빈칸'으로 임시 명명
-            
-            if c in col_counts:
-                col_counts[c] += 1
-                final_cols.append(f"{c}_{col_counts[c]}") # 상호_2, 상호_3 식으로 고유 번호 부여
+        # [에러 완벽 차단] 중복된 열 이름이 있으면 뒤에 번호를 붙여줌
+        final_cols, seen = [], {}
+        for c in raw_cols:
+            clean_c = re.sub(r'[^가-힣a-zA-Z0-9]', '', c)
+            if not clean_c: clean_c = "빈칸"
+            if clean_c in seen:
+                seen[clean_c] += 1
+                final_cols.append(f"{clean_c}_{seen[clean_c]}")
             else:
-                col_counts[c] = 1
-                final_cols.append(c)
-                
+                seen[clean_c] = 1
+                final_cols.append(clean_c)
         df.columns = final_cols
 
-        # 4. 각 데이터 기둥 매핑
+        # 컬럼 자동 매핑
         c_date = next((c for c in df.columns if '일자' in c), df.columns[1])
-        
-        # 매출일 경우 공급받는자 우선 탐색
+        c_supply = next((c for c in df.columns if '공급가액' in c), df.columns[-2])
+        c_tax = next((c for c in df.columns if '세액' in c), df.columns[-1])
+
+        # 매출 시 호진환경 제외 진짜 거래처 찾기
         if job_type == "💰 매출":
             c_name = next((c for c in df.columns if '공급받는자' in c), None)
-            if not c_name: c_name = next((c for c in df.columns if '상호2' in c or '상호_2' in c), None)
+            if not c_name: c_name = next((c for c in df.columns if '상호' in c and '상호_2' in c), None)
             if not c_name: c_name = next((c for c in df.columns if '상호' in c), df.columns[3])
         else:
             c_name = next((c for c in df.columns if '공급자' in c and '받는' not in c), None)
             if not c_name: c_name = next((c for c in df.columns if '상호' in c), df.columns[3])
 
-        c_supply = next((c for c in df.columns if '공급가액' in c), df.columns[-2])
-        c_tax = next((c for c in df.columns if '세액' in c), df.columns[-1])
-
-        # 5. 금액 파싱
-        df[c_supply] = df[c_supply].apply(clean_value_secure)
-        df[c_tax] = df[c_tax].apply(clean_value_secure)
-
+        # ==========================================
+        # 🚨 4. 분배 로직 (KT 사용량 적용)
+        # ==========================================
         ansan_list, incheon_list = [], []
 
-        # ==========================================
-        # 6. 분류 및 정산
-        # ==========================================
         for idx, row in df.iterrows():
             name_str = str(row[c_name]).replace(" ", "").lower()
             date_str = str(row[c_date]).replace("-", "").replace(".", "")
             
-            is_split_target = False
+            sup_val = clean_value_secure(row[c_supply])
+            tax_val = clean_value_secure(row[c_tax])
             
+            is_split = False
+            current_ratio = ansan_ratio / 100.0 # 기본은 일반 슬라이더 비율
+            
+            # [조건 1] 일반 분배 대상
             if '진솔법무사' in name_str or '비즈택스' in name_str:
-                is_split_target = True
-                
+                is_split = True
             elif '혜성환경' in name_str and '0511' in date_str[-4:]:
-                is_split_target = True
+                is_split = True
                 
-            # KT 소액 강제 입력 처리
+            # [조건 2] KT 소액 분배 (입력하신 사용량 기반 퍼센트로 변경!)
             elif '케이티' in name_str or 'kt' in name_str:
-                if row[c_supply] < kt_threshold:
-                    if kt_new_supply > 0:
-                        row[c_supply] = float(kt_new_supply)
-                        row[c_tax] = float(kt_new_supply) * 0.1
-                    is_split_target = True
+                if sup_val < kt_threshold:
+                    is_split = True
+                    current_ratio = kt_ansan_percent # KT 전용 사용량 비율로 덮어쓰기
 
-            row['합계'] = row[c_supply] + row[c_tax]
-
-            if is_split_target:
-                row_ansan = row.copy()
-                row_incheon = row.copy()
+            if is_split:
+                a_sup = np.floor(sup_val * current_ratio)
+                a_tax = np.floor(tax_val * current_ratio)
+                i_sup = sup_val - a_sup
+                i_tax = tax_val - a_tax
                 
-                ratio = ansan_ratio / 100.0
-                ansan_supply_val = np.floor(row[c_supply] * ratio)
-                ansan_tax_val = np.floor(row[c_tax] * ratio)
-                
-                row_ansan[c_supply] = ansan_supply_val
-                row_ansan[c_tax] = ansan_tax_val
-                row_ansan['합계'] = ansan_supply_val + ansan_tax_val
-                
-                row_incheon[c_supply] = row[c_supply] - ansan_supply_val
-                row_incheon[c_tax] = row[c_tax] - ansan_tax_val
-                row_incheon['합계'] = row_incheon[c_supply] + row_incheon[c_tax]
-                
-                if ansan_ratio > 0: ansan_list.append(row_ansan)
-                if incheon_ratio > 0: incheon_list.append(row_incheon)
+                ansan_list.append({'작성일자': row[c_date], '상호': row[c_name], '공급가액': a_sup, '세액': a_tax, '합계': a_sup + a_tax})
+                incheon_list.append({'작성일자': row[c_date], '상호': row[c_name], '공급가액': i_sup, '세액': i_tax, '합계': i_sup + i_tax})
                 continue
                 
+            # [조건 3] 분배 안 하는 일반 내역
             if '남상민' in name_str or any(k in name_str for k in ['성남수정', '성남경찰서', '6114hojin', 'tpy1004']):
-                ansan_list.append(row)
+                ansan_list.append({'작성일자': row[c_date], '상호': row[c_name], '공급가액': sup_val, '세액': tax_val, '합계': sup_val + tax_val})
             else:
-                incheon_list.append(row)
+                incheon_list.append({'작성일자': row[c_date], '상호': row[c_name], '공급가액': sup_val, '세액': tax_val, '합계': sup_val + tax_val})
 
-        # 7. 화면 표출 준비
-        display_cols = [c_date, c_name, c_supply, c_tax, '합계']
-        a_df = pd.DataFrame(ansan_list)[display_cols] if ansan_list else pd.DataFrame(columns=display_cols)
-        i_df = pd.DataFrame(incheon_list)[display_cols] if incheon_list else pd.DataFrame(columns=display_cols)
-        
-        # 표출용으로 이름 깔끔하게 변경
-        a_df.columns = ['작성일자', '상호', '공급가액', '세액', '합계']
-        i_df.columns = ['작성일자', '상호', '공급가액', '세액', '합계']
+        # ==========================================
+        # 5. 화면 표출 및 다운로드
+        # ==========================================
+        a_df = pd.DataFrame(ansan_list) if ansan_list else pd.DataFrame(columns=['작성일자', '상호', '공급가액', '세액', '합계'])
+        i_df = pd.DataFrame(incheon_list) if incheon_list else pd.DataFrame(columns=['작성일자', '상호', '공급가액', '세액', '합계'])
 
-        # 8. 엑셀 저장
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             a_df.to_excel(writer, sheet_name='안산_본점', index=False)
@@ -169,4 +156,4 @@ if uploaded_file is not None:
             st.subheader("🏭 인천 지점"); st.dataframe(i_df)
 
     except Exception as e:
-        st.error(f"🚨 오류 발생: {e} - 계속 문제가 생긴다면 편하게 알려주세요!")
+        st.error(f"🚨 오류 발생: {e}")
