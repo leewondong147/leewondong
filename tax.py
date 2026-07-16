@@ -8,8 +8,8 @@ import re
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.1 완성형)")
-st.caption("표 밀림을 방지하는 클린 배열과, 놓치는 데이터가 없는 전체 텍스트 스캔 엔진을 결합했습니다.")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.2 소계 적용판)")
+st.caption("안정적인 클린 배열과 전체 텍스트 스캔 엔진에, 월별 소계 및 총계 기능을 추가했습니다.")
 
 # ==========================================
 # ⚙️ 2. [사이드바] 설정 제어판
@@ -36,11 +36,16 @@ kt_threshold = st.sidebar.number_input("KT 소액 기준", value=55000, step=100
 uploaded_file = st.file_uploader("📂 원본 파일 올리기", type=["csv", "xlsx", "xls"])
 
 # ==========================================
-# 🛠️ 3. [핵심] 지능형 좌표 추적 엔진
+# 🛠️ 3. [전처리] 안전한 데이터 추출 및 날짜 처리
 # ==========================================
 def clean_value_secure(val):
     try: return float(str(val).replace(",", "").replace("원", "").replace('"', '').strip())
     except: return 0.0
+
+def parse_flexible_date(series):
+    cleaned = series.astype(str).str.replace('"', '').str.strip()
+    cleaned = cleaned.str.replace('년', '-').str.replace('월', '-').str.replace('일', '')
+    return pd.to_datetime(cleaned, errors='coerce')
 
 if uploaded_file is not None:
     try:
@@ -77,7 +82,7 @@ if uploaded_file is not None:
         ansan_data, incheon_data = [], []
 
         # ==========================================
-        # 4. 데이터 스플릿 및 5칸 테이블 조립
+        # 4. 데이터 스플릿 및 분류
         # ==========================================
         for _, row in df_data.iterrows():
             date_str = str(row[idx_date]).strip()
@@ -88,7 +93,7 @@ if uploaded_file is not None:
             name_str = str(row[idx_name]).replace(" ", "").lower()
             if name_str == 'nan': continue
 
-            # 🚨 [핵심 수정 포인트] 안산 분류를 위해 해당 줄의 '모든 텍스트'를 다 합쳐서 검사합니다.
+            # 전체 텍스트 스캔 (안산 키워드 탐색용)
             full_text = "".join(row.fillna('').astype(str)).replace(" ", "").lower()
 
             sup_val = clean_value_secure(row[idx_sup])
@@ -97,7 +102,7 @@ if uploaded_file is not None:
             is_split = False
             current_ratio = ansan_ratio / 100.0
 
-            # 50:50 분배 로직 (이름 기준)
+            # 분배 로직
             if '진솔법무사' in name_str or '비즈택스' in name_str:
                 is_split = True
             elif '혜성환경' in name_str and '0511' in date_str.replace("-","").replace(".","")[-4:]:
@@ -116,27 +121,73 @@ if uploaded_file is not None:
                 ansan_data.append([date_str, row[idx_name], a_sup, a_tax, a_sup + a_tax])
                 incheon_data.append([date_str, row[idx_name], i_sup, i_tax, i_sup + i_tax])
             else:
-                # 🚨 [핵심 수정 포인트] 이메일이나 비고 칸에 숨은 단어도 full_text로 잡아냅니다.
                 if '남상민' in full_text or any(k in full_text for k in ['성남수정', '성남경찰서', '6114hojin', 'tpy1004']):
                     ansan_data.append([date_str, row[idx_name], sup_val, tax_val, sup_val + tax_val])
                 else:
                     incheon_data.append([date_str, row[idx_name], sup_val, tax_val, sup_val + tax_val])
 
         # ==========================================
-        # 5. 화면 출력 및 다운로드
+        # 5. 💡 월별 소계 및 총계 생성 함수
         # ==========================================
         final_columns = ['작성일자', '상호', '공급가액', '세액', '합계']
-        a_df = pd.DataFrame(ansan_data, columns=final_columns)
-        i_df = pd.DataFrame(incheon_data, columns=final_columns)
+        
+        def format_with_subtotals(data_list):
+            if not data_list:
+                return pd.DataFrame(columns=final_columns)
+            
+            # 1. 임시 데이터프레임 생성 및 날짜 변환
+            temp_df = pd.DataFrame(data_list, columns=final_columns)
+            temp_dates = parse_flexible_date(temp_df['작성일자'])
+            temp_df['월'] = temp_dates.dt.month.fillna(0).astype(int)
+            
+            # 2. 날짜순으로 정렬
+            temp_df = temp_df.sort_values(by=['월', '작성일자'])
+            
+            final_rows = []
+            
+            # 3. 월별로 그룹화하여 소계 추가
+            for month, group in temp_df.groupby('월'):
+                group_clean = group.drop(columns=['월'])
+                final_rows.append(group_clean)
+                
+                month_label = f"{int(month)}월 소계" if month > 0 else "기타(날짜미상) 소계"
+                
+                subtotal = pd.DataFrame([{
+                    '작성일자': month_label, 
+                    '상호': "", 
+                    '공급가액': group['공급가액'].sum(), 
+                    '세액': group['세액'].sum(), 
+                    '합계': group['합계'].sum()
+                }])
+                final_rows.append(subtotal)
+            
+            # 4. 전체 총계 추가
+            grand_total = pd.DataFrame([{
+                '작성일자': "총 계", 
+                '상호': "", 
+                '공급가액': temp_df['공급가액'].sum(), 
+                '세액': temp_df['세액'].sum(), 
+                '합계': temp_df['합계'].sum()
+            }])
+            final_rows.append(grand_total)
+            
+            return pd.concat(final_rows, ignore_index=True)
 
+        # 소계 및 총계 함수 적용
+        a_df = format_with_subtotals(ansan_data)
+        i_df = format_with_subtotals(incheon_data)
+
+        # ==========================================
+        # 6. 화면 출력 및 다운로드
+        # ==========================================
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             a_df.to_excel(writer, sheet_name='안산_본점', index=False)
             i_df.to_excel(writer, sheet_name='인천_지점', index=False)
         
         st.divider()
-        st.success(f"✅ {job_type} 정산 완료!")
-        st.download_button("📥 정산 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_정산완료.xlsx")
+        st.success(f"✅ {job_type} 정산 완료 (소계 적용)!")
+        st.download_button("📥 정산 엑셀 다운로드", output.getvalue(), f"호진환경_{job_type}_정산완료_소계.xlsx")
         
         c1, c2 = st.columns(2)
         with c1: 
