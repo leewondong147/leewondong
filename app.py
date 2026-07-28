@@ -15,11 +15,11 @@ def get_latest_draw_number():
     return ((now - first_draw_date).days // 7) + 1
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 3.0)
+# 앱 아이콘 및 페이지 설정 (Ver 3.1)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 3.0)")
-st.caption("클라우드 서버 차단을 완벽하게 우회하는 '수동 데이터 주입기'가 탑재되었습니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 3.1)")
+st.caption("엑셀(Excel) 파일 업로드 기능이 추가된 클라우드 우회 완성판입니다.")
 
 # ==========================================
 # 1. 📡 [데이터 크롤링 및 정제 엔진]
@@ -56,14 +56,13 @@ def load_and_sync_lotto_data():
         last_saved = int(df_base["회차"].max())
         target_latest = get_latest_draw_number()
         
-        # API 통신 시도 (클라우드에서는 막히지만 로컬 환경을 위해 유지)
         if last_saved < target_latest:
             new_rows = []
             for n_round in range(last_saved + 1, target_latest + 1):
                 data = fetch_lotto_api(n_round)
                 if data is None:
                     status_msg += " (⚠️ 외부 서버 접근 차단됨 - 클라우드 환경)"
-                    break # 클라우드에서 차단된 경우 더 이상 무의미한 시도 중단
+                    break 
                 new_rows.append(data)
                 time.sleep(0.5)
             
@@ -79,25 +78,32 @@ def load_and_sync_lotto_data():
 df_lotto, load_status = load_and_sync_lotto_data()
 
 # ==========================================
-# 🚨 2. [신규] 클라우드 우회용 수동 데이터 주입기 (사이드바)
+# 🚨 2. [신규] 엑셀 지원 수동 데이터 주입기 (사이드바)
 # ==========================================
 st.sidebar.divider()
 st.sidebar.subheader("🚨 수동 데이터 주입기 (클라우드 우회)")
-st.sidebar.caption("동행복권 API 차단 시, 맥북에 있는 최신 CSV 파일을 아래에 드래그하여 임시로 대시보드를 업데이트하세요.")
-uploaded_file = st.sidebar.file_uploader("최신 lotto_data.csv 파일 업로드", type=['csv'])
+st.sidebar.caption("동행복권 엑셀(또는 CSV) 파일을 아래에 드래그하여 임시로 대시보드를 업데이트하세요.")
+
+# 💡 [핵심 수정 1] 허용하는 파일 형식에 xlsx와 xls를 추가했습니다.
+uploaded_file = st.sidebar.file_uploader("최신 엑셀/CSV 파일 업로드", type=['csv', 'xlsx', 'xls'])
 
 if uploaded_file is not None:
     try:
-        df_uploaded = pd.read_csv(uploaded_file)
+        # 💡 [핵심 수정 2] 파일 확장자를 검사하여 알맞은 읽기 방식을 선택합니다.
+        if uploaded_file.name.endswith('.csv'):
+            df_uploaded = pd.read_csv(uploaded_file)
+        else:
+            # 엑셀 파일인 경우 pandas의 read_excel을 사용합니다.
+            df_uploaded = pd.read_excel(uploaded_file)
+            
         df_uploaded["회차"] = pd.to_numeric(df_uploaded["회차"].astype(str).str.replace('"', '').str.replace(',', ''), errors="coerce")
         df_uploaded = df_uploaded.dropna(subset=["회차"]).astype({"회차": int})
         
-        # 업로드된 파일의 데이터로 기존 데이터를 덮어씌워 강제 병합합니다.
         df_lotto = pd.concat([df_lotto, df_uploaded]).drop_duplicates(subset=["회차"], keep="last")
         df_lotto = df_lotto.sort_values(by="회차", ascending=True)
-        st.sidebar.success(f"✅ 수동 데이터 주입 성공! (최신 {int(df_lotto['회차'].max())}회 적용)")
+        st.sidebar.success(f"✅ 엑셀 데이터 주입 성공! (최신 {int(df_lotto['회차'].max())}회 적용)")
     except Exception as e:
-        st.sidebar.error("⚠️ CSV 파일 형식이 맞지 않습니다.")
+        st.sidebar.error(f"⚠️ 파일 형식 오류 또는 엑셀 라이브러리가 필요합니다: {e}")
 
 # ==========================================
 # 3. 수치화 표출 및 데이터 연산 로직
