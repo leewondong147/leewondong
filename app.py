@@ -25,12 +25,16 @@ st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' 
 st.caption("절대 날짜 기반 추적 엔진 탑재! 서버 지연을 극복하고 최신 회차를 영구적으로 자동 동기화합니다.")
 
 # ==========================================
-# 1. 📡 [실시간 고속 크롤링 엔진]
+# 1. 📡 [실시간 고속 크롤링 엔진 - 방패 장착]
 # ==========================================
 def fetch_lotto_api(drw_no):
     url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drw_no}"
+    # 💡 [핵심 수정] 서버가 파이썬 봇(Bot)으로 인식하고 차단하지 못하도록 일반 브라우저처럼 위장합니다.
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'} 
+    
     try:
-        res = requests.get(url, timeout=3)
+        # 타임아웃(기다리는 시간)도 5초로 넉넉하게 늘려줍니다.
+        res = requests.get(url, headers=headers, timeout=5) 
         if res.status_code == 200:
             data = res.json()
             if data.get("returnValue") == "success":
@@ -50,7 +54,7 @@ def fetch_lotto_api(drw_no):
     return None
 
 # ==========================================
-# 2. 🛡️ [하이브리드 예외처리 및 데이터 정제 엔진]
+# 2. 🛡️ [하이브리드 예외처리 및 데이터 정제 엔진 - 포기 금지]
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_and_sync_lotto_data():
@@ -85,18 +89,19 @@ def load_and_sync_lotto_data():
     try:
         if not df_base.empty and "회차" in df_base.columns:
             last_saved_round = int(df_base["회차"].max())
-            target_latest_round = get_latest_draw_number() # 💡 실제 최신 회차 계산!
+            target_latest_round = get_latest_draw_number() 
             
-            # 💡 while 루프를 버리고, 정확한 목표치를 향해 달리는 for 루프로 변경!
             if last_saved_round < target_latest_round:
                 new_rows = []
                 for next_round in range(last_saved_round + 1, target_latest_round + 1):
                     api_data = fetch_lotto_api(next_round)
                     if api_data is None:
-                        # 통신 장애가 발생해도 무한히 멈추지 않고, 수집된 곳까지만 안전하게 저장
-                        break 
+                        # 💡 [핵심 수정] 아예 멈춰버리는 break 대신, 실패하면 다음 회차로 건너뛰는 continue를 씁니다.
+                        status_msg += f" (⚠️ {next_round}회 지연)"
+                        continue 
+                        
                     new_rows.append(api_data)
-                    time.sleep(0.1) # 서버 보호
+                    time.sleep(0.5) # 💡 서버가 부담을 느끼지 않게 0.5초씩 푹 쉬어줍니다.
                 
                 if new_rows:
                     df_new = pd.DataFrame(new_rows)
@@ -114,8 +119,6 @@ def load_and_sync_lotto_data():
         status_msg += " (⚠️ 서버 연결 일시 지연)"
         
     return df_base, status_msg
-
-df_lotto, load_status = load_and_sync_lotto_data()
 
 # ==========================================
 # 3. 수치화 표출부
