@@ -9,11 +9,11 @@ from datetime import datetime
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 4.0)
+# 앱 아이콘 및 페이지 설정 (Ver 4.1)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 4.0)")
-st.caption("1회~최신회차 전체 마스터 엑셀 파일을 완벽하게 해독하여 대시보드를 구성합니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 4.1)")
+st.caption("동행복권 원본 엑셀의 '병합된 셀' 구조를 완벽하게 해독하는 좌표 기반 스캐너가 탑재되었습니다.")
 
 # ==========================================
 # 1. 🛡️ [로컬 데이터베이스 로드]
@@ -31,7 +31,7 @@ def load_local_data():
 df_lotto, load_status = load_local_data()
 
 # ==========================================
-# 🚨 2. [핵심] 전체 엑셀 파일 스마트 주입기
+# 🚨 2. [핵심] 전체 엑셀 파일 스마트 주입기 (좌표 탐색)
 # ==========================================
 st.sidebar.divider()
 st.sidebar.subheader("🚨 마스터 데이터 주입기")
@@ -40,57 +40,68 @@ uploaded_file = st.sidebar.file_uploader("전체 엑셀/CSV 파일 업로드", t
 
 if uploaded_file is not None:
     try:
-        # 파일 형식에 맞춰 안전하게 읽기
-        if uploaded_file.name.endswith('.csv'):
-            df_up = pd.read_csv(uploaded_file, dtype=str, on_bad_lines='skip')
-        else:
-            try:
-                df_up = pd.read_excel(uploaded_file, dtype=str, header=None)
-            except:
-                df_up = pd.read_html(uploaded_file, encoding='utf-8', header=None)[0]
+        # 동행복권 엑셀은 HTML 형식으로 위장된 경우가 많아 두 가지 방식을 모두 시도합니다.
+        try:
+            df_up = pd.read_excel(uploaded_file, header=None)
+        except:
+            uploaded_file.seek(0)
+            df_up = pd.read_html(uploaded_file.getvalue().decode('utf-8', errors='ignore'), header=None)[0]
 
-        # 💡 [스마트 스캐너] 동행복권 양식의 '진짜 제목줄' 찾기
+        # 💡 [업그레이드] 명찰(이름)이 아닌 위치(좌표)를 찾습니다.
         header_idx = -1
+        idx_round = -1
+        
         for i in range(min(len(df_up), 20)):
-            row_str = "".join(df_up.iloc[i].fillna('').astype(str))
-            if '회차' in row_str and ('1' in row_str or '번호1' in row_str):
+            row_list = df_up.iloc[i].fillna('').astype(str).tolist()
+            row_str = "".join(row_list).replace(" ", "")
+            
+            # '회차'와 '당첨번호'가 포함된 진짜 제목줄을 찾습니다.
+            if '회차' in row_str and '당첨번호' in row_str:
                 header_idx = i
+                # '회차'가 몇 번째 기둥(인덱스)에 있는지 추적합니다.
+                for j, col_val in enumerate(row_list):
+                    if '회차' in col_val:
+                        idx_round = j
+                        break
                 break
         
         clean_rows = []
-        if header_idx != -1:
-            df_up.columns = df_up.iloc[header_idx].fillna('').astype(str).str.replace(' ', '')
+        if header_idx != -1 and idx_round != -1:
             df_data = df_up.iloc[header_idx+1:].copy()
             
-            # 💡 1회부터 1234회까지 방대한 데이터에서 '번호'만 순식간에 추출합니다.
+            # 💡 '회차' 기둥의 위치를 기준으로 오른쪽 칸들을 순서대로 빨아들입니다.
             for _, row in df_data.iterrows():
                 try:
-                    rnd = int(str(row.get('회차', '')).replace(',','').replace('"', '').replace('회',''))
-                    n1 = int(str(row.get('1', row.get('번호1', '0'))).replace(',',''))
-                    n2 = int(str(row.get('2', row.get('번호2', '0'))).replace(',',''))
-                    n3 = int(str(row.get('3', row.get('번호3', '0'))).replace(',',''))
-                    n4 = int(str(row.get('4', row.get('번호4', '0'))).replace(',',''))
-                    n5 = int(str(row.get('5', row.get('번호5', '0'))).replace(',',''))
-                    n6 = int(str(row.get('6', row.get('번호6', '0'))).replace(',',''))
-                    bn = int(str(row.get('보너스', '0')).replace(',',''))
+                    rnd_str = str(row.iloc[idx_round]).replace(',','').replace('"', '').replace('회','').strip()
+                    if not rnd_str.isdigit(): 
+                        continue # 빈 칸이거나 글자면 건너뜁니다.
+                        
+                    rnd = int(rnd_str)
+                    n1 = int(float(str(row.iloc[idx_round+1]).replace(',','').strip()))
+                    n2 = int(float(str(row.iloc[idx_round+2]).replace(',','').strip()))
+                    n3 = int(float(str(row.iloc[idx_round+3]).replace(',','').strip()))
+                    n4 = int(float(str(row.iloc[idx_round+4]).replace(',','').strip()))
+                    n5 = int(float(str(row.iloc[idx_round+5]).replace(',','').strip()))
+                    n6 = int(float(str(row.iloc[idx_round+6]).replace(',','').strip()))
+                    bn = int(float(str(row.iloc[idx_round+7]).replace(',','').strip()))
                     
                     if n1 > 0 and n6 > 0:
                         clean_rows.append({
                             "회차": rnd, "년도": "2024",
-                            "번호1": n1, "번호2": n2, "번호3": n3, "번호4": n4, "번호5": n5, "번호6": n6, "보너스": bn
+                            "번호1": n1, "번호2": n2, "번호3": n3, 
+                            "번호4": n4, "번호5": n5, "번호6": n6, "보너스": bn
                         })
-                except:
+                except Exception:
                     pass
         
         df_cleaned_up = pd.DataFrame(clean_rows)
         
         if not df_cleaned_up.empty:
-            # 💡 [핵심 변경] 기존 데이터를 무시하고, 방금 올린 '마스터 데이터'로 덮어씁니다!
             df_lotto = df_cleaned_up.sort_values(by="회차", ascending=True)
-            df_lotto.to_csv('lotto_data.csv', index=False) # 다음번 접속을 위해 로컬에 저장
+            df_lotto.to_csv('lotto_data.csv', index=False)
             st.sidebar.success(f"✅ 마스터 데이터 정제 및 저장 완료! (총 {len(df_lotto)}개 회차 적용)")
         else:
-            st.sidebar.error("⚠️ 번호 데이터를 추출하지 못했습니다. 동행복권 원본 파일이 맞는지 확인해 주세요.")
+            st.sidebar.error("⚠️ 번호 데이터를 추출하지 못했습니다. 파일 구조를 다시 확인해 주세요.")
     except Exception as e:
         st.sidebar.error(f"⚠️ 업로드 처리 에러: {e}")
 
@@ -101,7 +112,6 @@ st.sidebar.success(f"📡 현재 상태: {load_status}")
 if not df_lotto.empty:
     st.sidebar.metric(label="현재 분석 중인 최신 회차", value=f"{int(df_lotto['회차'].max())}회")
 
-# 💡 '번호1' ~ '번호6' 기둥을 찾아 1234회 분량의 숫자를 전부 모읍니다.
 all_numbers, even_count, odd_count = [], 0, 0
 if not df_lotto.empty:
     target_cols = ["번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
