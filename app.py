@@ -7,34 +7,31 @@ import time
 from datetime import datetime
 
 # ==========================================
-# 0. 🕒 [신규] 최신 회차 자동 계산 엔진
+# 0. 🕒 최신 회차 자동 계산 엔진
 # ==========================================
 def get_latest_draw_number():
     """오늘 날짜를 기준으로 가장 최근에 추첨된 로또 회차를 계산합니다."""
-    # 1회차 추첨일 (2002년 12월 7일 21시 기준)
     first_draw_date = datetime(2002, 12, 7, 21, 0, 0)
     now = datetime.now()
     delta = now - first_draw_date
     return (delta.days // 7) + 1
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 2.8)
+# 앱 아이콘 및 페이지 설정 (Ver 2.9 통합 완성판)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.8)")
-st.caption("절대 날짜 기반 추적 엔진 탑재! 서버 지연을 극복하고 최신 회차를 영구적으로 자동 동기화합니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.9)")
+st.caption("절대 날짜 기반 추적 + 통신 에러 방어 엔진이 모두 통합된 완전판입니다.")
 
 # ==========================================
 # 1. 📡 [실시간 고속 크롤링 엔진 - 방패 장착]
 # ==========================================
 def fetch_lotto_api(drw_no):
     url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drw_no}"
-    # 💡 [핵심 수정] 서버가 파이썬 봇(Bot)으로 인식하고 차단하지 못하도록 일반 브라우저처럼 위장합니다.
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'} 
-    
+    # 서버가 봇(Bot)으로 오해하지 않도록 일반 브라우저로 위장합니다.
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
-        # 타임아웃(기다리는 시간)도 5초로 넉넉하게 늘려줍니다.
-        res = requests.get(url, headers=headers, timeout=5) 
+        res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             if data.get("returnValue") == "success":
@@ -54,7 +51,7 @@ def fetch_lotto_api(drw_no):
     return None
 
 # ==========================================
-# 2. 🛡️ [하이브리드 예외처리 및 데이터 정제 엔진 - 포기 금지]
+# 2. 🛡️ [하이브리드 예외처리 및 데이터 정제 엔진]
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_and_sync_lotto_data():
@@ -96,12 +93,11 @@ def load_and_sync_lotto_data():
                 for next_round in range(last_saved_round + 1, target_latest_round + 1):
                     api_data = fetch_lotto_api(next_round)
                     if api_data is None:
-                        # 💡 [핵심 수정] 아예 멈춰버리는 break 대신, 실패하면 다음 회차로 건너뛰는 continue를 씁니다.
                         status_msg += f" (⚠️ {next_round}회 지연)"
                         continue 
                         
                     new_rows.append(api_data)
-                    time.sleep(0.5) # 💡 서버가 부담을 느끼지 않게 0.5초씩 푹 쉬어줍니다.
+                    time.sleep(0.5) 
                 
                 if new_rows:
                     df_new = pd.DataFrame(new_rows)
@@ -119,6 +115,9 @@ def load_and_sync_lotto_data():
         status_msg += " (⚠️ 서버 연결 일시 지연)"
         
     return df_base, status_msg
+
+# 🚨 [핵심 해결] 들여쓰기 없이 벽에 딱 붙여서 함수를 정상 실행합니다!
+df_lotto, load_status = load_and_sync_lotto_data()
 
 # ==========================================
 # 3. 수치화 표출부
