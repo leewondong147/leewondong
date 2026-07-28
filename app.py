@@ -7,11 +7,22 @@ import time
 from datetime import datetime
 
 # ==========================================
-# 앱 아이콘 및 페이지 설정 (Ver 2.7 실전 완벽 대응판)
+# 0. 🕒 [신규] 최신 회차 자동 계산 엔진
+# ==========================================
+def get_latest_draw_number():
+    """오늘 날짜를 기준으로 가장 최근에 추첨된 로또 회차를 계산합니다."""
+    # 1회차 추첨일 (2002년 12월 7일 21시 기준)
+    first_draw_date = datetime(2002, 12, 7, 21, 0, 0)
+    now = datetime.now()
+    delta = now - first_draw_date
+    return (delta.days // 7) + 1
+
+# ==========================================
+# 앱 아이콘 및 페이지 설정 (Ver 2.8)
 # ==========================================
 st.set_page_config(page_title="이원동 로또 비밀 연구소", page_icon="🎯", layout="wide")
-st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.7)")
-st.caption("대표님의 실제 CSV 컬럼 구조 분석 완료! 파일 손상과 이름 불일치 장벽을 분쇄하고 대시보드를 100% 가동합니다.")
+st.title("🎯 이원동의 '로또(Lotto) 스마트 매칭 & 패턴 연구소' (Ver 2.8)")
+st.caption("절대 날짜 기반 추적 엔진 탑재! 서버 지연을 극복하고 최신 회차를 영구적으로 자동 동기화합니다.")
 
 # ==========================================
 # 1. 📡 [실시간 고속 크롤링 엔진]
@@ -60,7 +71,6 @@ def load_and_sync_lotto_data():
         df_base = pd.read_csv('lotto_data.csv', on_bad_lines='skip')
         status_msg = "로컬 CSV 데이터베이스 로드 완료"
         
-        # 회차 컬럼 이름이나 값에 든 공백과 "1,217" 같은 따옴표 쉼표를 강제 정수 제거
         df_base["회차"] = df_base["회차"].astype(str).str.replace('"', '').str.replace(',', '').str.strip()
         df_base["회차"] = pd.to_numeric(df_base["회차"], errors="coerce")
         df_base = df_base.dropna(subset=["회차"])
@@ -75,28 +85,33 @@ def load_and_sync_lotto_data():
     try:
         if not df_base.empty and "회차" in df_base.columns:
             last_saved_round = int(df_base["회차"].max())
-            next_round = last_saved_round + 1
+            target_latest_round = get_latest_draw_number() # 💡 실제 최신 회차 계산!
             
-            new_rows = []
-            while True:
-                api_data = fetch_lotto_api(next_round)
-                if api_data is None:
-                    break
-                new_rows.append(api_data)
-                next_round += 1
-                time.sleep(0.05)
+            # 💡 while 루프를 버리고, 정확한 목표치를 향해 달리는 for 루프로 변경!
+            if last_saved_round < target_latest_round:
+                new_rows = []
+                for next_round in range(last_saved_round + 1, target_latest_round + 1):
+                    api_data = fetch_lotto_api(next_round)
+                    if api_data is None:
+                        # 통신 장애가 발생해도 무한히 멈추지 않고, 수집된 곳까지만 안전하게 저장
+                        break 
+                    new_rows.append(api_data)
+                    time.sleep(0.1) # 서버 보호
                 
-            if new_rows:
-                df_new = pd.DataFrame(new_rows)
-                df_base = pd.concat([df_base, df_new], ignore_index=True)
-                df_base = df_base.drop_duplicates(subset=["회차"], keep="last")
-                df_base["회차"] = df_base["회차"].astype(int)
-                df_base = df_base.sort_values(by="회차", ascending=True)
+                if new_rows:
+                    df_new = pd.DataFrame(new_rows)
+                    df_base = pd.concat([df_base, df_new], ignore_index=True)
+                    df_base = df_base.drop_duplicates(subset=["회차"], keep="last")
+                    df_base["회차"] = df_base["회차"].astype(int)
+                    df_base = df_base.sort_values(by="회차", ascending=True)
+                    
+                    df_base.to_csv('lotto_data.csv', index=False)
+                    status_msg += f" (🚀 누락되었던 {len(new_rows)}개 최신 회차 동기화 완료!)"
+            elif last_saved_round == target_latest_round:
+                status_msg += " (✅ 현재 최신 회차 유지 중)"
                 
-                df_base.to_csv('lotto_data.csv', index=False)
-                status_msg += f" (최신 {len(new_rows)}개 회차 동기화 완료!)"
     except Exception as e:
-        status_msg += " (서버 연결 일시 지연)"
+        status_msg += " (⚠️ 서버 연결 일시 지연)"
         
     return df_base, status_msg
 
@@ -117,13 +132,11 @@ all_numbers = []
 even_count = 0
 odd_count = 0
 
-# 🚨 [하이퍼 하이브리드 보정] 컬럼 이름에 의존하지 않고, '회차' 컬럼 다음 칸부터 연속된 6개 컬럼을 찾아내 파싱합니다!
 try:
     if "회차" in df_lotto.columns:
         col_list = list(df_lotto.columns)
         idx_round = col_list.index("회차")
         
-        # 회차 컬럼 바로 뒤 6개 열을 번호 열로 자동 간주
         target_cols = col_list[idx_round + 1 : idx_round + 7]
         
         for col in target_cols:
@@ -139,10 +152,8 @@ except:
     pass
 
 if not all_numbers:
-    # 예외 상황 시 자동 연산용 비상 난수 생성
     all_numbers = [random.randint(1, 45) for _ in range(300)]
 
-# 1부터 45까지 완전하게 누적 재정렬
 frequency = pd.Series(all_numbers).value_counts().reindex(range(1, 46), fill_value=0)
 
 # ==========================================
@@ -153,7 +164,6 @@ tab1, tab2 = st.tabs(["📊 역대 통계 및 홀짝 비율 분석", "🔮 가�
 with tab1:
     st.subheader("📊 역대 당첨 데이터 패턴 종합 대시보드")
     
-    # 디스플레이 테이블 바인딩
     df_freq_display = pd.DataFrame({
         "숫자": [f"{i}번" for i in frequency.index],
         "출현횟수": frequency.values
@@ -176,7 +186,6 @@ with tab1:
             odd_pct = (odd_count / total_balls) * 100
             st.info(f"🔵 **홀수(Odd): {odd_pct:.1f}%**  |  🔴 **짝수(Even): {even_pct:.1f}%**")
         
-        # 🚨 [가로축 & 기둥 동시 수리 완료] 인덱스에 순수한 정수(1~45)를 얹어 차트가 기둥을 가득 채워 그리게 합니다.
         st.write("📈 **1~45 번호별 출현 빈도 바 차트 (가로축: 번호순 정렬)**")
         df_chart_data = pd.DataFrame({
             "출현빈도": [float(val) for val in frequency.values]
