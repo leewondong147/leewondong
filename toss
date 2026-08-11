@@ -1,0 +1,3 @@
+# 1. 토스증권에서 받은 내 정보 API_KEY = "tsck_live_Ph5oS9uxDZztpGfg44LIyH" 
+# 2. 토스증권 서버 주소 (REST API) # (개발자 센터 문서에 나와 있는 URL을 사용합니다) BASE_URL = "https://openapi.tossinvest.com" 
+# 3. 출입증(Token) 신청 및 가져오기 예시 # (실제 토스증권 문서의 인증 Endpoint 주소로 요청) print("토스증권 API 연결 시도 중...")
