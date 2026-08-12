@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 server_ip = requests.get("https://api.ipify.org").text
-st.info(f"💡 현재 스트림릿 서버의 IP 주소는 [ {127.0.0.1} ] 입니다.")
+st.info(f"💡 현재 스트림릿 서버의 IP 주소는 [ {server_ip} ] 입니다.")
 
 # -------------------------------------------------------------
 # 1. 사용자 정보 설정 (발급받으신 진짜 키로 변경해주세요)
