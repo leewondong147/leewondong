@@ -62,7 +62,7 @@ def get_holdings(access_token, account_seq):
         result = response.json().get("result", {})
         items = result.get("items", [])
         
-        # --- [1] 계좌 전체 요약 요약 정보 ---
+        # --- [1] 계좌 전체 요약 정보 ---
         market_val = result.get("marketValue", {}).get("amount", {})
         profit_loss = result.get("profitLoss", {})
         daily_pl = result.get("dailyProfitLoss", {})
@@ -114,15 +114,15 @@ def get_holdings(access_token, account_seq):
                 c2.write(f"• **실시간 현재가:** {last_price:{fmt}} {symbol_curr}")
                 c2.write(f"• **총 평가금액:** {item_eval:{fmt}} {symbol_curr}")
                 
-                # 금일 변동
+                # 금일 변동 (HTML 태그 허용으로 수정 완료)
                 d_color = "red" if item_daily_amount > 0 else ("blue" if item_daily_amount < 0 else "gray")
                 c3.write("**금일 변동:**")
-                c3.markdown(f"<span style='color:{d_color}; font-weight:bold;'>{item_daily_amount:+{fmt}} {symbol_curr} ({item_daily_rate:+.2f}%)</span>", unsafe_allow_kw=True)
+                c3.markdown(f"<span style='color:{d_color}; font-weight:bold;'>{item_daily_amount:+{fmt}} {symbol_curr} ({item_daily_rate:+.2f}%)</span>", unsafe_allow_html=True)
                 
-                # 누적 손익
+                # 누적 손익 (HTML 태그 허용으로 수정 완료)
                 t_color = "red" if item_total_amount > 0 else ("blue" if item_total_amount < 0 else "gray")
                 c4.write("**누적 손익:**")
-                c4.markdown(f"<span style='color:{t_color}; font-weight:bold;'>{item_total_amount:+{fmt}} {symbol_curr} ({item_total_rate:+.2f}%)</span>", unsafe_allow_kw=True)
+                c4.markdown(f"<span style='color:{t_color}; font-weight:bold;'>{item_total_amount:+{fmt}} {symbol_curr} ({item_total_rate:+.2f}%)</span>", unsafe_allow_html=True)
 
     else:
         st.error(f"❌ 잔고 조회 실패: {response.text}")
