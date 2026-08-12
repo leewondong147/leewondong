@@ -1,7 +1,7 @@
 import requests
 
-API_KEY = "tsck_live_ZiTWKPQCOFGqJGIGkHNceF"
-SECRET_KEY = "tssk_live_UhFQqT4efR9LK1Eb6uMPe9S8Oa3oeJuVjUeSuCC8EWfM"
+API_KEY = "ZiTWKPQCOFGqJGIGkHNceF"
+SECRET_KEY = "UhFQqT4efR9LK1Eb6uMPe9S8Oa3oeJuVjUeSuCC8EWfM"
 BASE_URL = "https://openapi.tossinvest.com"
 
 def get_access_token():
