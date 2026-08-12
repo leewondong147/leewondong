@@ -3,8 +3,8 @@ import requests
 # -------------------------------------------------------------
 # 1. 사용자 정보 설정 (토스증권 개발자 센터 발급 정보)
 # -------------------------------------------------------------
-API_KEY = "Ph5oS9uxDZztpGfg44LIyH"
-SECRET_KEY = "********"
+API_KEY = "tsck_live_ZiTWKPQCOFGqJGIGkHNceF"
+SECRET_KEY = "tssk_live_UhFQqT4efR9LK1Eb6uMPe9S8Oa3oeJuVjUeSuCC8EWfM"
 
 # 토스증권 Open API 기본 URL
 BASE_URL = "https://openapi.tossinvest.com"
