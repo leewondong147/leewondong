@@ -8,7 +8,7 @@ import re
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.4 양식 방어판)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.5 완벽 방어판)")
 st.caption("국세청 엑셀의 사소한 양식 변경에도 흔들리지 않는 초강력 스마트 탐색 엔진이 탑재되었습니다.")
 
 # ==========================================
@@ -41,10 +41,9 @@ if uploaded_file is not None:
         # 1. 파일 안전하게 읽기
         df_raw = pd.read_excel(uploaded_file, header=None, dtype=str) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, header=None, dtype=str)
 
-        # 🚨 [강력 업데이트] 2. 초강력 진짜 제목줄(헤더) 찾기
+        # 🚨 2. 초강력 진짜 제목줄(헤더) 찾기
         header_row_idx = -1
         
-        # 탐색 범위를 50줄로 늘리고, 공백/특수문자를 완전히 무시하고 검색합니다.
         for i in range(min(len(df_raw), 50)):
             raw_row_str = "".join(df_raw.iloc[i].fillna('').astype(str))
             clean_row_str = re.sub(r'[^가-힣a-zA-Z0-9]', '', raw_row_str)
@@ -62,10 +61,20 @@ if uploaded_file is not None:
         header_list = [re.sub(r'\s+', '', col) for col in header_list]
 
         idx_date = next((i for i, col in enumerate(header_list) if '작성일자' in col), -1)
-        idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col or '금액' in col), -1)
-        idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
+        
+        # 🚨 [금액 추출 강화] '합계금액' 등에 낚이지 않고 '공급가액'을 1순위로 정확히 찾습니다.
+        idx_sup = next((i for i, col in enumerate(header_list) if col == '공급가액'), -1)
+        if idx_sup == -1:
+            idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col), -1)
+        if idx_sup == -1:
+            idx_sup = next((i for i, col in enumerate(header_list) if '금액' in col), -1)
 
-        # 🚨 [완벽 방어 업데이트] 진짜 거래처 알아서 찾아내는 AI 로직
+        # 🚨 [세액 추출 강화] '품목세액' 등에 낚이지 않고 '세액'을 정확히 찾습니다.
+        idx_tax = next((i for i, col in enumerate(header_list) if col == '세액'), -1)
+        if idx_tax == -1:
+            idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
+
+        # 진짜 거래처 알아서 찾아내는 AI 로직
         name_indices = [i for i, col in enumerate(header_list) if '상호' in col or '거래처' in col or '업체' in col]
         
         idx_name = -1
@@ -173,7 +182,7 @@ if uploaded_file is not None:
 
                 is_split = False
                 
-                # 🚨 [비즈택스 완벽 방어] 오타(비즈텍스) 및 줄 밀림까지 전체 텍스트에서 감지하여 무조건 50:50 분배
+                # 🚨 [비즈택스 방어] 오타(비즈텍스) 및 줄 밀림 감지하여 50:50 분배
                 if any(k in full_text for k in ['진솔법무사', '비즈택스', '비즈텍스']):
                     is_split = True
                 elif '혜성환경' in name_clean and '0511' in date_str.replace("-","").replace(".","")[-4:]:
