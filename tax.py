@@ -8,7 +8,7 @@ import re
 # 1. 페이지 설정
 # ==========================================
 st.set_page_config(page_title="호진환경 정산기", layout="wide")
-st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.5 완벽 방어판)")
+st.title("📊 (주)호진환경 부가세 정산기 (Ver 10.6 완벽 복구판)")
 st.caption("국세청 엑셀의 사소한 양식 변경에도 흔들리지 않는 초강력 스마트 탐색 엔진이 탑재되었습니다.")
 
 # ==========================================
@@ -62,17 +62,14 @@ if uploaded_file is not None:
 
         idx_date = next((i for i, col in enumerate(header_list) if '작성일자' in col), -1)
         
-        # 🚨 [금액 추출 강화] '합계금액' 등에 낚이지 않고 '공급가액'을 1순위로 정확히 찾습니다.
-        idx_sup = next((i for i, col in enumerate(header_list) if col == '공급가액'), -1)
-        if idx_sup == -1:
-            idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col), -1)
-        if idx_sup == -1:
-            idx_sup = next((i for i, col in enumerate(header_list) if '금액' in col), -1)
+        # [안정적인 금액 기둥 추출로 원상복구]
+        idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col or '금액' in col), -1)
+        # 만약 합계금액이 먼저 잡혔다면 뒤에 있는 진짜 공급가액으로 재수정
+        if idx_sup != -1 and '합계금액' in header_list[idx_sup]:
+            temp_idx = next((i for i, col in enumerate(header_list[idx_sup+1:]) if '공급가액' in col), -1)
+            if temp_idx != -1: idx_sup = idx_sup + 1 + temp_idx
 
-        # 🚨 [세액 추출 강화] '품목세액' 등에 낚이지 않고 '세액'을 정확히 찾습니다.
-        idx_tax = next((i for i, col in enumerate(header_list) if col == '세액'), -1)
-        if idx_tax == -1:
-            idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
+        idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
 
         # 진짜 거래처 알아서 찾아내는 AI 로직
         name_indices = [i for i, col in enumerate(header_list) if '상호' in col or '거래처' in col or '업체' in col]
@@ -113,7 +110,8 @@ if uploaded_file is not None:
             
             sup_val = clean_value_secure(row[idx_sup])
             tax_val = clean_value_secure(row[idx_tax])
-            full_text = "".join(row.fillna('').astype(str)).replace(" ", "").lower()
+            # 🚨 전체텍스트에서도 공백을 완벽히 제거하여 검색에러 방지
+            full_text = "".join(row.fillna('').astype(str)).replace(" ", "").replace("\n", "").lower()
 
             item = {
                 '작성일자': date_str,
@@ -182,7 +180,7 @@ if uploaded_file is not None:
 
                 is_split = False
                 
-                # 🚨 [비즈택스 완벽 분배] 전체 텍스트에서 비즈택스 감지
+                # 비즈택스 분배
                 if any(k in full_text for k in ['진솔법무사', '비즈택스', '비즈텍스']):
                     is_split = True
                 elif '혜성환경' in name_clean and '0511' in date_str.replace("-","").replace(".","")[-4:]:
