@@ -46,13 +46,9 @@ if uploaded_file is not None:
         
         # 탐색 범위를 50줄로 늘리고, 공백/특수문자를 완전히 무시하고 검색합니다.
         for i in range(min(len(df_raw), 50)):
-            # 해당 줄의 모든 데이터를 하나의 문자열로 합칩니다.
             raw_row_str = "".join(df_raw.iloc[i].fillna('').astype(str))
-            
-            # 정규식(Regex)을 사용하여 한글, 영어, 숫자만 남기고 띄어쓰기 등 모든 것을 지웁니다.
             clean_row_str = re.sub(r'[^가-힣a-zA-Z0-9]', '', raw_row_str)
             
-            # 뼈대만 남은 문자열에 핵심 단어가 있는지 확인합니다.
             if '작성일자' in clean_row_str and '공급가액' in clean_row_str:
                 header_row_idx = i
                 break
@@ -63,10 +59,8 @@ if uploaded_file is not None:
 
         # 3. 열 번호(좌표) 추출 로직 강화
         header_list = df_raw.iloc[header_row_idx].fillna('').astype(str).tolist()
-        # 헤더 이름 자체에서도 공백과 줄바꿈을 완벽히 제거합니다.
         header_list = [re.sub(r'\s+', '', col) for col in header_list]
 
-        # 단어가 정확히 일치하지 않아도 포함되어 있으면 찾아내도록 강화
         idx_date = next((i for i, col in enumerate(header_list) if '작성일자' in col), -1)
         idx_sup = next((i for i, col in enumerate(header_list) if '공급가액' in col or '금액' in col), -1)
         idx_tax = next((i for i, col in enumerate(header_list) if '세액' in col), -1)
@@ -78,32 +72,25 @@ if uploaded_file is not None:
         if not name_indices:
             idx_name = -1
         elif len(name_indices) == 1:
-            idx_name = name_indices[0] # 기둥이 하나면 무조건 그걸로 선택
+            idx_name = name_indices[0] 
         else:
-            # 기둥이 여러 개일 경우, 그 기둥의 데이터(아래 5줄)를 미리 읽어봅니다.
             for idx in name_indices:
                 sample_values = df_raw.iloc[header_row_idx+1:header_row_idx+6, idx].fillna('').astype(str).tolist()
-                
-                # 해당 기둥에 '호진'이라는 이름이 몇 개나 있는지 카운트합니다.
                 hojin_count = sum(1 for val in sample_values if '호진' in val)
                 
-                # '호진'이 절반 미만인 기둥이 바로 '진짜 상대방 거래처(클라이언트)'입니다.
                 if hojin_count < len(sample_values) * 0.5:
                     idx_name = idx
                     break
             
-            # 혹시라도 판별이 안 되었다면 기존 로직(사이드바 버튼 기준)으로 안전하게 백업
             if idx_name == -1:
                 idx_name = name_indices[1] if job_type == "💰 매출" else name_indices[0]
 
-        # 필수 열 번호를 제대로 찾았는지 안전 검사
         if -1 in [idx_date, idx_sup, idx_name]:
              st.error("🚨 제목줄은 찾았으나, 날짜/공급가액/상호 기둥을 정확히 분류하지 못했습니다.")
              st.stop()
 
         df_data = df_raw.iloc[header_row_idx+1:].copy()
         
-        # 데이터를 돌면서 KT 내역과 일반 내역을 분리합니다.
         kt_list = []
         other_list = []
 
@@ -185,7 +172,9 @@ if uploaded_file is not None:
                 full_text = row['전체텍스트']
 
                 is_split = False
-                if '진솔법무사' in name_clean or '비즈택스' in name_clean:
+                
+                # 🚨 [비즈택스 완벽 방어] 오타(비즈텍스) 및 줄 밀림까지 전체 텍스트에서 감지하여 무조건 50:50 분배
+                if any(k in full_text for k in ['진솔법무사', '비즈택스', '비즈텍스']):
                     is_split = True
                 elif '혜성환경' in name_clean and '0511' in date_str.replace("-","").replace(".","")[-4:]:
                     is_split = True
