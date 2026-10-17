@@ -53,7 +53,7 @@ if uploaded_file is not None:
                 break
         
         if header_row_idx == -1:
-            st.error("🚨 엑셀 파일에서 '작성일자'와 '공급가액' 항목을 찾을 수 없습니다. 국세청 양식이 완전히 바뀐 것 같습니다.")
+            st.error("🚨 엑셀 파일에서 '작성일자'와 '공급가액' 항목을 찾을 수 없습니다.")
             st.stop()
 
         # 3. 열 번호(좌표) 추출 로직 강화
@@ -95,7 +95,7 @@ if uploaded_file is not None:
                 idx_name = name_indices[1] if job_type == "💰 매출" else name_indices[0]
 
         if -1 in [idx_date, idx_sup, idx_name]:
-             st.error("🚨 제목줄은 찾았으나, 날짜/공급가액/상호 기둥을 정확히 분류하지 못했습니다.")
+             st.error("🚨 제목줄은 찾았으나, 필수 기둥을 분류하지 못했습니다.")
              st.stop()
 
         df_data = df_raw.iloc[header_row_idx+1:].copy()
@@ -182,7 +182,7 @@ if uploaded_file is not None:
 
                 is_split = False
                 
-                # 🚨 [비즈택스 방어] 오타(비즈텍스) 및 줄 밀림 감지하여 50:50 분배
+                # 🚨 [비즈택스 완벽 분배] 전체 텍스트에서 비즈택스 감지
                 if any(k in full_text for k in ['진솔법무사', '비즈택스', '비즈텍스']):
                     is_split = True
                 elif '혜성환경' in name_clean and '0511' in date_str.replace("-","").replace(".","")[-4:]:
